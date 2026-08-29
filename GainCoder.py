@@ -162,7 +162,7 @@ class GainCoder:
         self.values = np.array(values)
         self.counts = np.array(counts)
         self.mgr = FramePrint().get_mgr()
-        # self.mgr.print_realtime = False
+        self.mgr.print_realtime = False
         self.abs_straits = []
         self.runs = []
         self.node, self.avg_bits, self.leaf_ext, self.bins_ext, self.codes = self._build()
@@ -426,8 +426,11 @@ class GainCoder:
         print("==Flags==")
         bins_ext_delta = build_bins_n_print(flag_len, [45, 90, 100])
         print("==AbsStraits==")
-        strait_rules = Counter((s.abs_pos, s.bit) for s in self.abs_straits)
+        s_counts = np.zeros((2, bit_count), dtype=np.uint32)
+        for s in self.abs_straits:
+            s_counts[s.bit, s.abs_pos] += 1
         build_bins_n_print(self.abs_strait_pos, [45, 90, 100])
+        strait_rules = Counter(((int(s.abs_pos), int(s.bit)) for s in self.abs_straits))
         print(f"Rules: {len(strait_rules)} unique of {len(self.abs_straits)}")
         print("Top:", ", ".join(f"{p}={b}×{c}" for (p, b), c in strait_rules.most_common(5)))
         print("==AbsSplits==")
@@ -483,6 +486,28 @@ def plot_bit_definition_order(coder):
     fig.savefig("levels_boxplot.png")
     plt.show()
 
+def plot_strait_counts(coder):
+    bit_count = int(coder.bit_count)
+    s_counts = np.zeros((2, bit_count), dtype=np.uint32)
+    for s in coder.abs_straits:
+        s_counts[s.bit, s.abs_pos] += 1
+    print(f"Strait count bins (pos: bit0/bit1): "
+          f"{[(p, int(s_counts[0, p]), int(s_counts[1, p])) for p in range(bit_count) if s_counts[:, p].any()]}")
+
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(figsize=(12, 5))
+    positions = np.arange(bit_count)
+    width = 0.4
+    ax.bar(positions - width / 2, s_counts[0], width, label="bit=0")
+    ax.bar(positions + width / 2, s_counts[1], width, label="bit=1")
+    ax.set_title("Strait counts per abs bit pos and bit value")
+    ax.set_xlabel("abs bit pos")
+    ax.set_ylabel("count")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig("strait_counts.png")
+    plt.show()
+
 base = Path("F:\\source\\sandbox314\\modelCompression\\bins")
 
 bits_to_shift = 0
@@ -513,7 +538,8 @@ for path in base.glob("model.layers.0.input_layernorm.weight.bin"):
     avg_bits = coder.average_bits()
     ratio_bits = coder.compression_ratio(bits_to_take)
 
-    # coder.print()
+    plot_bit_definition_order(coder)
+    plot_strait_counts(coder)
 
 
     # total = np.sum(counts)
