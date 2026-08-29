@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np
 
-from GainCoder import GainCoder, Node, StraitNode
+from claraenc.GainCoder import GainCoder, Node, StraitNode
 
 
 def make(values, bit_count):

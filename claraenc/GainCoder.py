@@ -7,9 +7,9 @@ from pathlib import Path
 # from BitWriter import BitWriter
 from clarautils import Bitty, NBitArray, SliceView, build_bins_n_print
 from clarautils import get_bits, get_number, symbol_to_str, get_bitmask, get_indices
-from entropy import get_bitwise_entropy
-from tree_printer import TreePrinter, Char
-from tree_printer import RootBegin, NodeBegin, Strait, NodeSplit, RootSplit, NodeEnd, Leaf
+from claraenc.entropy import get_bitwise_entropy
+from claraenc.tree_printer import TreePrinter, Char
+from claraenc.tree_printer import RootBegin, NodeBegin, Strait, NodeSplit, RootSplit, NodeEnd, Leaf
 
 
 def get_bit_count(value: int):

@@ -20,7 +20,7 @@ session memory: preferences, quirks, observations, open questions.
 
 - Done: `project.md`, `AGENTS.md`, `opencode.json`, baseline `GainCoder_v0.py`
   (pristine, never touch).
-- Done: studied Bitty sources; refactored `GainCoder.py` — SliceView chain,
+- Done: studied Bitty sources; refactored `claraenc/GainCoder.py` — SliceView chain,
   view-based candidate scan (`group_by_bit`), per-run op logs
   (`coder.runs`, `RunOp(abs_pos, bit, kind)`), strait contexts
   (`StraitDef.determined` = value string at the strait, before the op),
@@ -54,7 +54,7 @@ session memory: preferences, quirks, observations, open questions.
 - Done (round 3): event decoupling — `_build` emits events
   (`RootBegin/NodeBegin/Strait/NodeSplit/RootSplit/NodeEnd/Leaf`),
   display optional (`display=None` default → no string building at all,
-  faster runs), all FramePrint code in `tree_printer.py`
+  faster runs), all FramePrint code in `claraenc/tree_printer.py`
   (`TreePrinter(realtime=)`), stats in `coder.print_stats()`. Main tail
   restored to v0 parity (`# coder.print()` marker + avg/END lines) — the
   harness needs those anchors. `compare_v0.py`: per-file patches (v0:
@@ -101,7 +101,7 @@ session memory: preferences, quirks, observations, open questions.
 
 ## Open questions / verify before "fixing"
 
-- Display logic is decoupled now (round 3: build events + `tree_printer.py`);
+- Display logic is decoupled now (round 3: build events + `claraenc/tree_printer.py`);
   the open question is resolved. `TreePrinter` replicates the original
   chains verbatim — if the output FORMAT is meant to change, that is now
   the place to touch.

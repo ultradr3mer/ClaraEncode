@@ -82,9 +82,9 @@ algorithm + `compare_v0` still IDENTICAL (stdout/codes/nodes/avg).
 
 `_build()` no longer touches FramePrint. The coder emits semantic build
 events (`RootBegin`, `NodeBegin`, `Strait`, `NodeSplit`, `RootSplit`,
-`NodeEnd`, `Leaf` — NamedTuples defined in `tree_printer.py`) via
+`NodeEnd`, `Leaf` — NamedTuples defined in `claraenc/tree_printer.py`) via
 `self.emit(...)`; `GainCoder(values, counts, bit_count, display=None)`
-takes an optional display listener. `tree_printer.py` holds all display
+takes an optional display listener. `claraenc/tree_printer.py` holds all display
 code: `Char`, `get_diff`, the entropy digit-string helpers (moved off
 `EntropyDiff`, which is now pure data), the event types and
 `TreePrinter(realtime=False)` (replicates the original FramePrint chains
@@ -103,7 +103,7 @@ byte-identical (7,524,668 chars), codes, node tree, avg.
 
 ## Refactor state (2026-08-29, round 2)
 
-`GainCoder.py` is refactored, behavior-identical to `GainCoder_v0.py`
+`claraenc/GainCoder.py` is refactored, behavior-identical to `GainCoder_v0.py`
 (verified via `compare_v0.py`: stdout byte-identical incl. FramePrint
 tree, `codes` dict, node tree, avg; 10s vs 3.8s — scan now view-based):
 
@@ -189,7 +189,7 @@ Candidate Bitty feature requests / bug reports for Clara (collect while refactor
 
 ## Known warts (do not silently "fix")
 
-- `entropy.py`: gini was just a try, entropy works better with this data.
+- `claraenc/entropy.py`: gini was just a try, entropy works better with this data.
   `individual_gini_sum` calls commented-out `individual_gini_optimized`
   (NameError if called) — dead code, leave it.
   The one-arg `get_bitwise_entropy(a: NBitArray)` def is shadowed by the

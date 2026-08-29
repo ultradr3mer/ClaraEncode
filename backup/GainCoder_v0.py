@@ -8,7 +8,7 @@ from pathlib import Path
 from clarastrings import FramePrint
 from clarastrings import BeginItemOptions, ParentChildRelation, ItemClosingBeavior
 from clarautils.commonEncoding import get_bits, get_number, symbol_to_str, get_bitmask
-from entropy import get_bitwise_entropy
+from claraenc.entropy import get_bitwise_entropy
 
 
 def get_bit_count(value: int):
