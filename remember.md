@@ -118,3 +118,24 @@ Expected: `stdout: IDENTICAL`, `codes: IDENTICAL`, `nodes: IDENTICAL`
 (7,524,668 chars with `coder.print()` enabled in-memory). Plain baseline
 stats: `python GainCoder_v0.py` → Codes: 2047, Nodes: 2046, Straits: 5441,
 Leafs: 2047, avg_bits=16.280, compression=0.509.
+
+## Basic Tree structure
+
+- `coder.tree` (round 4): `StraitNode(op, abs_pos, child)` unary chain
+  per entry over split `Node(bit_idx, true, false)`; tree leaves carry
+  ORIGINAL values; `coder.node` = split-only v0 parity (degenerate
+  leaves — keep for compare_v0). Main now `__main__`-guarded.
+- `test_tree.py` (7 tests, plain asserts, `python test_tree.py` — no
+  pytest in venv). compare_v0 NEW_PATCH anchor updated for the
+  `display=TreePrinter()` main line.
+
+```
+ N = Node, S=Strait
+ 
+        N
+       / \
+      S   N
+      |  / \
+      N  S
+     / \ |
+```

@@ -30,7 +30,7 @@ V0_PATCHES = [
 ]
 
 NEW_PATCHES = V0_PATCHES + [
-    ("coder = GainCoder(values, counts, bits_to_take)",
+    ("coder = GainCoder(values, counts, bits_to_take, display=TreePrinter())",
      "coder = GainCoder(values, counts, bits_to_take, display=TreePrinter(realtime=True))"),
 ]
 

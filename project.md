@@ -54,6 +54,27 @@ Dedup analysis (refactored coder, `coder.abs_straits`, 2026-08-29):
 **5385** strait slots (~99%). Splits use 26 of 32 absolute positions
 (peak: pos 31 ×307, pos 30 ×266, pos 29 ×227).
 
+## Tree structure + tests (2026-08-29, round 4)
+
+`coder.tree` is the strait-augmented tree (Clara's sketch): every
+recursive entry = chain of `StraitNode(op, abs_pos, child)` (outermost =
+first-defined strait) over a split `Node(bit_idx, true, false)`; tree
+leaves are the ORIGINAL values (`CommonNBitSc(value, bit_count)` — same
+object family as the `codes` keys). `coder.node` stays the split-only
+v0-parity tree (degenerate `CommonNBitSc(0, 0)` leaves — value info only
+in `codes`; kept byte-identical for `compare_v0`). Build threading:
+`build_recursive`/`create_node`/`make_root` return `(node, tree)`
+pairs. `abs_pos` = absolute MSB position (0 = MSB). Main is behind
+`if __name__ == "__main__":` now → module importable. `print_stats`
+guards empty `flag_len`/`abs_strait_pos`/`abs_split_pos` (strait-less
+inputs no longer crash `np.max([])`; real data unaffected).
+`test_tree.py` — preconfigured-tree tests (plain asserts,
+`python test_tree.py`, no pytest in venv): hand-derived structures for
+small value sets, incl. the sketch shape (`[2,3,4,5]` bc 3 → split with
+S→N in both branches), root strait chains, `coder.node` split-only
+parity, runs-vs-tree. All verified against manual derivation of the
+algorithm + `compare_v0` still IDENTICAL (stdout/codes/nodes/avg).
+
 ## Refactor state (2026-08-29, round 3: events + display extraction)
 
 `_build()` no longer touches FramePrint. The coder emits semantic build

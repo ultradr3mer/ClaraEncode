@@ -15,7 +15,7 @@ from tree_printer import RootBegin, NodeBegin, Strait, NodeSplit, RootSplit, Nod
 def get_bit_count(value: int):
     return int(np.ceil(np.log2(value + 1)))
 
-
+# will be moved to clarautils
 def safe_iter(iter, default):
     try:
         return next(iter)
@@ -116,6 +116,12 @@ class Node(NamedTuple):
     false_node: NamedTuple | None | np.generic
 
 
+class StraitNode(NamedTuple):
+    op: DefineBitOp
+    abs_pos: int
+    child: "StraitNode | Node | np.generic"
+
+
 class GainCoder:
     def merge_str(s, a, b):
         iter_b = iter(b)
@@ -129,7 +135,7 @@ class GainCoder:
         self.display = display
         self.abs_straits = []
         self.runs = []
-        self.node, self.avg_bits, self.codes = self._build()
+        self.node, self.tree, self.avg_bits, self.codes = self._build()
         self.leaf_ext, self.bins_ext = self.print_stats()
 
     def emit(self, event):
@@ -230,15 +236,17 @@ class GainCoder:
 
         def build_recursive(params: BuildParams):
             if len(params.data) == 1:
-                leaf_bits = create_leaf(params)
-                return get_number(leaf_bits)
+                leaf_bits, number = create_leaf(params)
+                return get_number(leaf_bits), number
 
             level, node_name, code, value = params.get_commons()
             self.emit(NodeBegin(node_name, params.value, value, params.entropy))
 
+            strait_params = []
             prev_value = value
             for p in check_defined(params, value):
                 self.emit(Strait(p.operation, prev_value, p.value))
+                strait_params.append(p)
                 prev_value = p.value
                 params = p
             value = prev_value
@@ -247,9 +255,11 @@ class GainCoder:
             out_val = self.merge_str(value, bit_str(split.bit_idx, bit=Char.branch, l=params.remaining_bits))
             self.emit(NodeSplit(split.bit_idx, value, out_val))
 
-            node = create_node(out_val, params, split, split.bit_idx)
+            node, tree = create_node(out_val, params, split, split.bit_idx)
+            for p in reversed(strait_params):
+                tree = StraitNode(p.operation, p.run[-1].abs_pos, tree)
             self.emit(NodeEnd(node_name))
-            return node
+            return node, tree
 
         def create_node(out_val, params, split, value: int | None = None):
             if value is not None:
@@ -261,20 +271,20 @@ class GainCoder:
             split_level = params.level + 1
             groups = params.data.group_by_bit(split_msb)
 
-            true_node = build_recursive(params.create_child(groups[1], out_val,
-                                                            operation=DefineBitOp(split.bit_idx, bit=1),
-                                                            entropy=EntropyDiff(split.entropy_begin,
-                                                                                split.entropy_after_with,
-                                                                                split.bit_idx),
-                                                            abs_op=RunOp(abs_pos, 1, 'split', split_level)))
-            false_node = build_recursive(params.create_child(groups[0], out_val,
-                                                             operation=DefineBitOp(split.bit_idx, bit=0),
-                                                             entropy=EntropyDiff(split.entropy_begin,
-                                                                                 split.entropy_after_wout,
-                                                                                 split.bit_idx),
-                                                             abs_op=RunOp(abs_pos, 0, 'split', split_level)))
+            true_node, true_tree = build_recursive(params.create_child(groups[1], out_val,
+                                                                      operation=DefineBitOp(split.bit_idx, bit=1),
+                                                                      entropy=EntropyDiff(split.entropy_begin,
+                                                                                          split.entropy_after_with,
+                                                                                          split.bit_idx),
+                                                                      abs_op=RunOp(abs_pos, 1, 'split', split_level)))
+            false_node, false_tree = build_recursive(params.create_child(groups[0], out_val,
+                                                                         operation=DefineBitOp(split.bit_idx, bit=0),
+                                                                         entropy=EntropyDiff(split.entropy_begin,
+                                                                                             split.entropy_after_wout,
+                                                                                             split.bit_idx),
+                                                                         abs_op=RunOp(abs_pos, 0, 'split', split_level)))
             self.node_count += 1
-            return Node(value, true_node, false_node)
+            return Node(value, true_node, false_node), Node(value, true_tree, false_tree)
 
         def create_leaf(params):
             nonlocal codes
@@ -294,7 +304,7 @@ class GainCoder:
             codes[number.value] = params.code
 
             self.leaf_count += 1
-            return leaf_bits
+            return leaf_bits, number
 
         def make_root(data):
             root = "root"
@@ -304,9 +314,11 @@ class GainCoder:
 
             self.emit(RootBegin(params.value))
 
+            strait_params = []
             prev_value = params.value
             for p in check_defined(params):
                 self.emit(Strait(p.operation, prev_value, p.value))
+                strait_params.append(p)
                 prev_value = p.value
                 params = p
 
@@ -314,11 +326,13 @@ class GainCoder:
             out_val = self.merge_str(params.value, bit_str(split.bit_idx, bit=Char.branch, l=params.remaining_bits))
             self.emit(RootSplit(params.value, out_val, np.max(split.gains)))
 
-            node = create_node(out_val, params, split)
+            node, tree = create_node(out_val, params, split)
+            for p in reversed(strait_params):
+                tree = StraitNode(p.operation, p.run[-1].abs_pos, tree)
             self.emit(NodeEnd(root))
-            return node
+            return node, tree
 
-        tree = make_root(self.values)
+        node, tree = make_root(self.values)
 
         bit_count = int(self.bit_count)
         self.strait_levels = [[] for _ in range(bit_count)]
@@ -334,7 +348,7 @@ class GainCoder:
         self.abs_split_pos = np.array([op.abs_pos for r in self.runs for op in r if op.kind == 'split'],
                                       dtype=np.uint32)
 
-        return tree, np.average(depths), codes
+        return node, tree, np.average(depths), codes
 
     def print_stats(self):
         print("==Data==")
@@ -343,14 +357,16 @@ class GainCoder:
         print("==Leafs==")
         leaf_ext_delta = build_bins_n_print(self.leaf_len, [45, 90, 100])
         print("==Flags==")
-        bins_ext_delta = build_bins_n_print(self.flag_len, [45, 90, 100])
+        bins_ext_delta = build_bins_n_print(self.flag_len, [45, 90, 100]) if len(self.flag_len) else 0
         print("==AbsStraits==")
-        build_bins_n_print(self.abs_strait_pos, [45, 90, 100])
+        if len(self.abs_strait_pos):
+            build_bins_n_print(self.abs_strait_pos, [45, 90, 100])
         strait_rules = Counter(((int(s.abs_pos), int(s.bit)) for s in self.abs_straits))
         print(f"Rules: {len(strait_rules)} unique of {len(self.abs_straits)}")
         print("Top:", ", ".join(f"{p}={b}×{c}" for (p, b), c in strait_rules.most_common(5)))
         print("==AbsSplits==")
-        build_bins_n_print(self.abs_split_pos, [45, 90, 100])
+        if len(self.abs_split_pos):
+            build_bins_n_print(self.abs_split_pos, [45, 90, 100])
         return leaf_ext_delta, bins_ext_delta
 
     def average_bits(self):
@@ -424,39 +440,40 @@ def plot_strait_counts(coder):
     fig.savefig("strait_counts.png")
     plt.show()
 
-base = Path("F:\\source\\sandbox314\\modelCompression\\bins")
+if __name__ == "__main__":
+    base = Path("F:\\source\\sandbox314\\modelCompression\\bins")
 
-bits_to_shift = 0
-bits_to_take = 32
-mask = get_bitmask(bits_to_take)
-num_possible = np.pow(2, bits_to_take)
-# for i in range(1):
-for path in base.glob("model.layers.0.input_layernorm.weight.bin"):
-    with open(path, "rb") as f:
-        buffer = f.read()
-    name = path.name
+    bits_to_shift = 0
+    bits_to_take = 32
+    mask = get_bitmask(bits_to_take)
+    num_possible = np.pow(2, bits_to_take)
+    # for i in range(1):
+    for path in base.glob("model.layers.0.input_layernorm.weight.bin"):
+        with open(path, "rb") as f:
+            buffer = f.read()
+        name = path.name
 
-    x = np.frombuffer(buffer, dtype=np.uint32)
+        x = np.frombuffer(buffer, dtype=np.uint32)
 
-    values, counts = np.unique(x, return_counts=True)
+        values, counts = np.unique(x, return_counts=True)
 
-    values = values.view()
+        values = values.view()
 
-    num_possible = np.iinfo(np.uint32).max + 1
-    num_unique = len(values)
-    ratio = num_unique / num_possible
+        num_possible = np.iinfo(np.uint32).max + 1
+        num_unique = len(values)
+        ratio = num_unique / num_possible
 
-    bit_req = get_bit_count(num_unique)
-    print(f"{name}: {num_unique}({bit_req:.3f} bits) unique, ratio={ratio:.6f}")
+        bit_req = get_bit_count(num_unique)
+        print(f"{name}: {num_unique}({bit_req:.3f} bits) unique, ratio={ratio:.6f}")
 
-    coder = GainCoder(values, counts, bits_to_take)
+        coder = GainCoder(values, counts, bits_to_take, display=TreePrinter())
 
-    avg_bits = coder.average_bits()
-    ratio_bits = coder.compression_ratio(bits_to_take)
+        avg_bits = coder.average_bits()
+        ratio_bits = coder.compression_ratio(bits_to_take)
 
-    # coder.print()
-    # plot_bit_definition_order(coder)
-    # plot_strait_counts(coder)
+        # coder.print()
+        # plot_bit_definition_order(coder)
+        # plot_strait_counts(coder)
 
-    print(f"{name}: avg_bits={avg_bits:.3f}, compression={ratio_bits:.3f}, {avg_bits - bits_to_take:.3f}")
-    print("END")
+        print(f"{name}: avg_bits={avg_bits:.3f}, compression={ratio_bits:.3f}, {avg_bits - bits_to_take:.3f}")
+        print("END")
