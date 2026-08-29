@@ -121,21 +121,41 @@ Straits: 5441, Leafs: 2047, avg_bits=16.280, compression=0.509.
 
 ## Layout
 
-- `claraenc/` — package: `GainCoder.py`, `tree_printer.py`, `entropy.py`
-  (no `__init__.py`, namespace package). `python claraenc\GainCoder.py`
+- `claraenc/` — package: `GainCoder.py`, `tree_printer.py`, `entropy.py`,
+  `bf16.py`, `Huffman.py` (Claras Scratch-Kopie, Imports teils extern).
+  No `__init__.py`, namespace package. `python claraenc\GainCoder.py`
   works directly (sys.path bootstrap at top; harmless on `-m`/import).
-- `tests/` — `test_tree.py` (preconfigured-tree tests),
+- `clarautil_doc/` — clarautils-Dokumentation (AGENTS.md, Multislice.md,
+  PERFORMANCE_REFACTOR.md, README.md, HowToBitty.md). HowToBitty: das
+  Bitty-Muster nach Claras Vorgabe (Bitty einmal über das ganze Array
+  aus np.frombuffer, SliceViews durchreichen, erst materialisieren wenn
+  nötig, Bulk statt Per-Item-Loops).
+- Skill `implement-with-bitty` erstellt
+  (`C:\Users\Clara\.config\opencode\skills\implement-with-bitty\`) —
+  triggert bei Bitty/clarautils-Bitarbeit; braucht ggf. opencode-Restart
+  zum Erscheinen in der Skill-Liste.
+- `claraenc/bf16.py` auf das Muster umgestellt (Claras Fix der
+  Signatur vollendet): `bf16_parts`/`bf16_to_f32` nehmen NBitArray
+  (Bitty/View-Kette), kein Bitty-Wrap in Funktionen;
+  `read_bf16` liefert EIN Bitty. Tests entsprechend (Bitty einmal,
+  `get_array()` nur für die Referenzen) — 5/5 grün, exhaustiv über
+  alle 65536 Werte.
+- `tests/` — `test_tree.py` (preconfigured-tree tests), `test_bf16.py`
+  (bf16 validation, reference fns copied from the scratch files),
   `compare_v0.py` (baseline harness; reads `backup/GainCoder_v0.py` +
   `claraenc/GainCoder.py`).
 - `backup/` — pristine `GainCoder_v0.py` (entropy import updated by
-  Clara to `claraenc.entropy` after the package move; rest untouched).
+  Clara to `claraenc.entropy` after the package move; rest untouched)
+  + Clara's bf16 scratch files (`bf16_test.py`, `bf16_fact.py` — kept
+  as reference for the bf16 validation).
 
 ## Basic Tree structure
 
-- `coder.tree` (round 4): `StraitNode(op, abs_pos, child)` unary chain
+- `coder.tree` (round 4): `StraitNode(op, child)` unary chain
   per entry over split `Node(bit_idx, true, false)`; tree leaves carry
   ORIGINAL values; `coder.node` = split-only v0 parity (degenerate
   leaves — keep for compare_v0). Main now `__main__`-guarded.
+  abs_pos bewusst NICHT am Baumknoten (steckt in RunOp/StraitDef/stats).
 - `test_tree.py` (7 tests, plain asserts, `python test_tree.py` — no
   pytest in venv). compare_v0 NEW_PATCH anchor updated for the
   `display=TreePrinter()` main line.
