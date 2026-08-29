@@ -7,8 +7,7 @@ from pathlib import Path
 # from BitWriter import BitWriter
 from clarastrings import FramePrint
 from clarastrings import BeginItemOptions, ParentChildRelation, ItemClosingBeavior
-from clarautils import Bitty, NBitArray, SliceView
-from clarautils import get_bits, get_number, symbol_to_str, get_bitmask, get_indices
+from clarautils.commonEncoding import get_bits, get_number, symbol_to_str, get_bitmask
 from entropy import get_bitwise_entropy
 
 
@@ -105,7 +104,7 @@ class EntropyDiff(NamedTuple):
 
 
 class BuildParams(NamedTuple):
-    data: NBitArray
+    data: np.array
     level: int
     code: str
     value: str
@@ -157,6 +156,8 @@ class BuildParamsCommons(NamedTuple):
 
 class Split(NamedTuple):
     bit_idx: int
+    items_with: np.ndarray
+    items_wout: np.ndarray
     gains: np.ndarray
     entropy_begin: np.ndarray
     entropy_after_with: np.ndarray
@@ -186,8 +187,6 @@ class GainCoder:
         self.counts = np.array(counts)
         self.mgr = FramePrint().get_mgr()
         # self.mgr.print_realtime = False
-        self.abs_straits = []
-        self.abs_splits = []
         self.node, self.avg_bits, self.leaf_ext, self.bins_ext, self.codes = self._build()
 
     def get_avg_bits(self):
@@ -197,6 +196,8 @@ class GainCoder:
         begin_entropy_list = get_bitwise_entropy(data, bit_count)
         begin_entropy = sum(begin_entropy_list)
         max_g = 0
+        max_with_parts = None
+        max_wout_parts = None
         max_with_entro = []
         max_wout_entro = []
         max_bit_idx = 0
@@ -209,12 +210,16 @@ class GainCoder:
             wout_g = begin_entropy - np.sum(wout_e_list)
             gain = (with_g * len(with_parts) + wout_g * len(wout_parts)) / (len(with_parts) + len(wout_parts))
             if gain > max_g:
+                max_with_parts = with_parts
+                max_wout_parts = wout_parts
                 max_with_entro = with_e_list
                 max_wout_entro = wout_e_list
                 max_bit_idx = i
                 max_g = gain
             increases.append(gain)
         return Split(bit_idx=max_bit_idx,
+                     items_with=max_with_parts,
+                     items_wout=max_wout_parts,
                      gains=np.array(increases),
                      entropy_begin=begin_entropy_list,
                      entropy_after_with=max_with_entro,
@@ -241,33 +246,32 @@ class GainCoder:
                             else Char.space
                             for a, b in zip(string_a, sting_b)])
 
-        def get_abs_positions(view: SliceView) -> List[int]:
-            return get_indices(view.bit_slice, int(self.bit_count))
-
-        def get_defined_ops(view: NBitArray) -> List[DefineBitOp]:
-            bit_count = view.get_bit_count()
-            bits = view.get_bitwise()
-            mins = np.min(bits, axis=0)
-            maxs = np.max(bits, axis=0)
-            return [DefineBitOp(bit_count - 1 - col, 1 if mins[col] > 0 else 0)
-                    for col in range(bit_count) if mins[col] == maxs[col]]
+        def get_single_value_bits(data, bit_count):
+            result = []
+            for i in range(bit_count):
+                bit = np.pow(2, bit_count - i - 1)
+                values = data & bit
+                max = np.max(values)
+                min = np.min(values)
+                if max == min:
+                    bit_idx = int(np.log2(bit))
+                    is_bit = 1 if min > 0 else 0
+                    result.append((bit_idx, is_bit))
+            return result
 
         def check_defined(params: BuildParams, value: str | None = None):
             nonlocal leaf_len, strait_count
             value = params.value if value is None else value
 
-            defined = get_defined_ops(params.data)
+            defined = get_single_value_bits(params.data, params.remaining_bits)
             if len(defined) == 0:
                 return []
 
             result = []
-            entry_bits = params.remaining_bits
-            abs_positions = get_abs_positions(params.data)
 
-            for op in defined:
-                self.abs_straits.append((int(abs_positions[entry_bits - 1 - op.idx]), op.bit))
+            for op in [DefineBitOp(i, b) for i, b in defined]:
                 value = self.merge_str(value, bit_str(op.idx, bit=op.bit, l=params.remaining_bits))
-                data = params.data.rm_b(params.remaining_bits - 1 - op.idx)
+                data = get_without_bit(params.data, op.idx)
                 params = params.create_child(data=data,
                                              operation=op,
                                              value=value,
@@ -278,13 +282,13 @@ class GainCoder:
                 strait_count += 1
                 result.append(params)
 
-            if len(get_defined_ops(params.data)) > 0:
+            if len(get_single_value_bits(params.data, params.remaining_bits)) > 0:
                 raise Exception("Not all bits are defined")
 
             return result
 
         def build_recursive(params: BuildParams):
-            if len(params.data) == 1:
+            if params.data.size == 1:
                 leaf_bits = create_leaf(params)
                 return get_number(leaf_bits)
 
@@ -315,7 +319,7 @@ class GainCoder:
                 params = p
                 value = p.value
 
-            split = self.get_next_split(params.data.get_array(), params.remaining_bits)
+            split = self.get_next_split(params.data, params.remaining_bits)
             out_val = self.merge_str(value, bit_str(split.bit_idx, bit=Char.branch, l=params.remaining_bits))
 
             sb.fill_to(end=f"op:{split.bit_idx}={Char.branch}: ", to=offset).a(
@@ -334,21 +338,16 @@ class GainCoder:
             if value is not None:
                 flag_len.append(len(get_bits(value)))
 
-            abs_positions = get_abs_positions(params.data)
-            split_msb = params.remaining_bits - 1 - split.bit_idx
-            self.abs_splits.append(int(abs_positions[split_msb]))
-            groups = params.data.group_by_bit(split_msb)
-
-            true_node = build_recursive(params.create_child(groups[1], out_val,
-                                                             operation=DefineBitOp(split.bit_idx, bit=1),
+            true_node = build_recursive(params.create_child(split.items_with, out_val,
+                                                            operation=DefineBitOp(split.bit_idx, bit=1),
+                                                            entropy=EntropyDiff(split.entropy_begin,
+                                                                                split.entropy_after_with,
+                                                                                split.bit_idx)))
+            false_node = build_recursive(params.create_child(split.items_wout, out_val,
+                                                             operation=DefineBitOp(split.bit_idx, bit=0),
                                                              entropy=EntropyDiff(split.entropy_begin,
-                                                                                 split.entropy_after_with,
+                                                                                 split.entropy_after_wout,
                                                                                  split.bit_idx)))
-            false_node = build_recursive(params.create_child(groups[0], out_val,
-                                                              operation=DefineBitOp(split.bit_idx, bit=0),
-                                                              entropy=EntropyDiff(split.entropy_begin,
-                                                                                  split.entropy_after_wout,
-                                                                                  split.bit_idx)))
             node_count += 1
             return Node(value, true_node, false_node)
 
@@ -358,7 +357,7 @@ class GainCoder:
             level, node_name, code, value = params.get_commons()
             depths.append(level)
 
-            leaf_value = data.get_array()[0]
+            leaf_value = data[0]
             leaf_bits = get_bits(leaf_value, remaining_bits)
             leaf_str = symbol_to_str(leaf_bits)
             leaf_len.append(len(get_bits(leaf_value)))
@@ -391,9 +390,7 @@ class GainCoder:
             sb.append(f"({root})     [")
             offset = sb.get_cursor()
 
-            bit_count = int(self.bit_count)
-            params = BuildParams.make_root(data=SliceView(Bitty(data, max_bit=bit_count)),
-                                           bit_count=bit_count)
+            params = BuildParams.make_root(data=data, bit_count=self.bit_count)
 
             sb = sb.append(f"{params.value}").make_next_line()
 
@@ -403,7 +400,7 @@ class GainCoder:
                     .fill_to(end="now: ", to=offset).a(f"{p.value},").make_next_line()
                 params = p
 
-            split = self.get_next_split(params.data.get_array(), params.remaining_bits)
+            split = self.get_next_split(params.data, params.remaining_bits)
             out_val = self.merge_str(params.value, bit_str(split.bit_idx, bit=Char.branch, l=params.remaining_bits))
 
             sb.fill_to(end="changes: ", to=offset).a(
@@ -451,7 +448,7 @@ class GainCoder:
         #         #     bw.put(n, length=self.leaf_ext)
         #         # else:
         #         #     bw.put(True)
-        #         n.bit
+        #         # n.bit
                 pass
 
     def compression_ratio(self, original_bits=16):
