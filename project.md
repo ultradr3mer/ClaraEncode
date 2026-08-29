@@ -70,9 +70,16 @@ tree, `codes` dict, node tree, avg; 10s vs 3.8s — scan now view-based):
   — float32/tie-break behavior must stay bit-identical
   (`sum()` vs `np.sum()` summation order matters!).
 - Per-run tracking (replaces flat `abs_splits`): `BuildParams.run` tuples
-  thread `RunOp(abs_pos, bit, kind)` ('strait'/'split') through
+  thread `RunOp(abs_pos, bit, kind, level)` ('strait'/'split') through
   `create_child`; `coder.runs` = ordered definition sequence per
-  root-to-leaf path (leaf bit-fills implicit), shared prefixes.
+  root-to-leaf path (leaf bit-fills implicit), shared prefixes. Level =
+  child level (root split = level 7 after 6 root straits).
+- Level histograms per absolute position (per-RUN occurrences, built from
+  `runs`): `coder.strait_levels[abs_pos]` = list of levels (33,824 total —
+  strait node events weighted by descendant runs; root-level/common rules
+  appear once per run, e.g. splits: `split_levels[5]` = [7]×2047),
+  `coder.split_levels[abs_pos]` (23,778 total). Low/unique levels =
+  common across runs, scattered deep levels = diverging tails.
 - `coder.abs_straits` = `StraitDef(abs_pos, bit, determined)` per strait
   event; `determined` = value string at that moment (chars per original
   position, '.' = undetermined) — the context for common/diverging.

@@ -30,6 +30,13 @@ session memory: preferences, quirks, observations, open questions.
   node tree, avg. Runtime 10s vs 3.8s (view-scan cost, accepted).
 - Done: dedup numbers — 5441 straits = 56 unique (abs MSB pos, bit) rules;
   global rule table would save 5385 slots (~99%).
+- Done: per-position level lists (Clara's `List[List]` sketch):
+  `coder.strait_levels` / `coder.split_levels`, outer len = bit_count,
+  inner = levels per per-run occurrence (33,824 strait / 23,778 split;
+  root split = `split_levels[5]` = [7]×2047 — level 7 after 6 root
+  straits). `RunOp` now carries `level`; runs are self-contained.
+  Straits kept as TWO structures (not one merged) so kinds stay
+  distinguishable — merge on request.
 - Resolved: `==AbsSplits==` stays per-RUN split occurrences (23,778;
   root split abs pos 5 is in every run); Clara wants raw data as arrays
   for her own numpy stats — exposed as `coder.abs_strait_pos` (5441) /

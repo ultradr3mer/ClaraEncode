@@ -43,6 +43,7 @@ class RunOp(NamedTuple):
     abs_pos: int
     bit: 1 | 0
     kind: str
+    level: int
 
 
 class StraitDef(NamedTuple):
@@ -253,7 +254,7 @@ class GainCoder:
                                              value=value,
                                              entropy=None,
                                              keep_code=True,
-                                             abs_op=RunOp(abs_pos, op.bit, 'strait'))
+                                             abs_op=RunOp(abs_pos, op.bit, 'strait', params.level + 1))
 
                 flag_len.append(len(get_bits(op.idx)))
                 strait_count += 1
@@ -318,6 +319,7 @@ class GainCoder:
             abs_positions = get_abs_positions(params.data)
             split_msb = params.remaining_bits - 1 - split.bit_idx
             abs_pos = int(abs_positions[split_msb])
+            split_level = params.level + 1
             groups = params.data.group_by_bit(split_msb)
 
             true_node = build_recursive(params.create_child(groups[1], out_val,
@@ -325,13 +327,13 @@ class GainCoder:
                                                              entropy=EntropyDiff(split.entropy_begin,
                                                                                  split.entropy_after_with,
                                                                                  split.bit_idx),
-                                                             abs_op=RunOp(abs_pos, 1, 'split')))
+                                                             abs_op=RunOp(abs_pos, 1, 'split', split_level)))
             false_node = build_recursive(params.create_child(groups[0], out_val,
                                                               operation=DefineBitOp(split.bit_idx, bit=0),
                                                               entropy=EntropyDiff(split.entropy_begin,
                                                                                   split.entropy_after_wout,
                                                                                   split.bit_idx),
-                                                              abs_op=RunOp(abs_pos, 0, 'split')))
+                                                              abs_op=RunOp(abs_pos, 0, 'split', split_level)))
             node_count += 1
             return Node(value, true_node, false_node)
 
@@ -402,6 +404,16 @@ class GainCoder:
             return node
 
         tree = make_root(self.values)
+
+        bit_count = int(self.bit_count)
+        self.strait_levels = [[] for _ in range(bit_count)]
+        self.split_levels = [[] for _ in range(bit_count)]
+        for run in self.runs:
+            for op in run:
+                if op.kind == 'strait':
+                    self.strait_levels[op.abs_pos].append(op.level)
+                else:
+                    self.split_levels[op.abs_pos].append(op.level)
 
         self.abs_strait_pos = np.array([s.abs_pos for s in self.abs_straits], dtype=np.uint32)
         self.abs_split_pos = np.array([op.abs_pos for r in self.runs for op in r if op.kind == 'split'],
@@ -481,8 +493,8 @@ for path in base.glob("model.layers.0.input_layernorm.weight.bin"):
 
     print(f"{name}: avg_bits={avg_bits:.3f}, compression={ratio_bits:.3f}, {avg_bits - bits_to_take:.3f}")
     print("END")
-    print(f"AbsStraits Qs: {np.percentile(coder.abs_strait_pos, [25, 50, 75])}")
-    print(f"AbsSplits Qs: {np.percentile(coder.abs_split_pos, [25, 50, 75])}")
+    print(f"AbsStraits Qs: {[np.percentile(p, [25, 50, 75]) if len(p) > 0 else [0,0,0] for p in coder.strait_levels]}")
+    print(f"AbsSplits Qs: {[np.percentile(p, [25, 50, 75]) if len(p) > 0 else [0,0,0] for p in coder.split_levels]}")
 
 
 
