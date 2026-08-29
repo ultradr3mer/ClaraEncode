@@ -4,6 +4,11 @@ from typing import NamedTuple, List
 import numpy as np
 from pathlib import Path
 
+import sys
+
+if globals().get("__package__", "") in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 # from BitWriter import BitWriter
 from clarautils import Bitty, NBitArray, SliceView, build_bins_n_print
 from clarautils import get_bits, get_number, symbol_to_str, get_bitmask, get_indices
@@ -118,7 +123,6 @@ class Node(NamedTuple):
 
 class StraitNode(NamedTuple):
     op: DefineBitOp
-    abs_pos: int
     child: "StraitNode | Node | np.generic"
 
 
@@ -257,7 +261,7 @@ class GainCoder:
 
             node, tree = create_node(out_val, params, split, split.bit_idx)
             for p in reversed(strait_params):
-                tree = StraitNode(p.operation, p.run[-1].abs_pos, tree)
+                tree = StraitNode(p.operation, tree)
             self.emit(NodeEnd(node_name))
             return node, tree
 
@@ -328,7 +332,7 @@ class GainCoder:
 
             node, tree = create_node(out_val, params, split)
             for p in reversed(strait_params):
-                tree = StraitNode(p.operation, p.run[-1].abs_pos, tree)
+                tree = StraitNode(p.operation, tree)
             self.emit(NodeEnd(root))
             return node, tree
 

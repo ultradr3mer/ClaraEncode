@@ -121,9 +121,14 @@ Straits: 5441, Leafs: 2047, avg_bits=16.280, compression=0.509.
 
 ## Layout
 
+- `claraenc/` — package: `GainCoder.py`, `tree_printer.py`, `entropy.py`
+  (no `__init__.py`, namespace package). `python claraenc\GainCoder.py`
+  works directly (sys.path bootstrap at top; harmless on `-m`/import).
 - `tests/` — `test_tree.py` (preconfigured-tree tests),
-  `compare_v0.py` (baseline harness; reads `backup/GainCoder_v0.py`).
-- `backup/` — pristine `GainCoder_v0.py` (never touch).
+  `compare_v0.py` (baseline harness; reads `backup/GainCoder_v0.py` +
+  `claraenc/GainCoder.py`).
+- `backup/` — pristine `GainCoder_v0.py` (entropy import updated by
+  Clara to `claraenc.entropy` after the package move; rest untouched).
 
 ## Basic Tree structure
 

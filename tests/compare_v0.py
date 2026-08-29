@@ -23,7 +23,7 @@ os.environ.setdefault("MPLBACKEND", "agg")
 BASE = Path(__file__).resolve().parent
 ROOT = BASE.parent
 V0 = ROOT / "backup" / "GainCoder_v0.py"
-NEW = ROOT / "GainCoder.py"
+NEW = ROOT / "claraenc" / "GainCoder.py"
 OUT = Path(r"C:\Users\Clara\AppData\Local\Temp\opencode")
 
 sys.path.insert(0, str(ROOT))

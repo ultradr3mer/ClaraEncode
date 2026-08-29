@@ -60,10 +60,12 @@ Dedup analysis (refactored coder, `coder.abs_straits`, 2026-08-29):
 ## Tree structure + tests (2026-08-29, round 4)
 
 `coder.tree` is the strait-augmented tree (Clara's sketch): every
-recursive entry = chain of `StraitNode(op, abs_pos, child)` (outermost =
+recursive entry = chain of `StraitNode(op, child)` (outermost =
 first-defined strait) over a split `Node(bit_idx, true, false)`; tree
 leaves are the ORIGINAL values (`CommonNBitSc(value, bit_count)` — same
-object family as the `codes` keys). `coder.node` stays the split-only
+object family as the `codes` keys). No abs_pos on tree nodes — absolute
+positions stay in `RunOp`/`StraitDef`/the `==Abs…==` stats.
+`coder.node` stays the split-only
 v0-parity tree (degenerate `CommonNBitSc(0, 0)` leaves — value info only
 in `codes`; kept byte-identical for `compare_v0`). Build threading:
 `build_recursive`/`create_node`/`make_root` return `(node, tree)`
