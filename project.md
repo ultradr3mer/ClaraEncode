@@ -54,22 +54,37 @@ Dedup analysis (refactored coder, `coder.abs_straits`, 2026-08-29):
 **5385** strait slots (~99%). Splits use 26 of 32 absolute positions
 (peak: pos 31 ×307, pos 30 ×266, pos 29 ×227).
 
-## Refactor state (2026-08-29, done)
+## Refactor state (2026-08-29, round 2)
 
 `GainCoder.py` is refactored, behavior-identical to `GainCoder_v0.py`
 (verified via `compare_v0.py`: stdout byte-identical incl. FramePrint
-tree, `codes` dict, node tree, avg; 4.4s vs 3.6s):
+tree, `codes` dict, node tree, avg; 10s vs 3.8s — scan now view-based):
 
 - Tree walk = `SliceView` chain over the root `Bitty`:
-  `rm_b` (strait removal), `group_by_bit` (split partition + bit removal),
-  `get_bitwise` (strait detection), `bit_slice` via `get_indices` for the
+  `rm_b` (strait removal), `group_by_bit` (split partition + bit removal,
+  now also the candidate scan in `get_next_split`), `get_bitwise`
+  (strait detection), `bit_slice` via `get_indices` for the
   local→absolute mapping. Root is wrapped `SliceView(Bitty(values))`.
-- Absolute tracking: `coder.abs_straits` (root MSB pos, bit) and
-  `coder.abs_splits` (root MSB pos), build order, no stdout impact.
-- Entropy scan (`get_next_split`) kept on raw numpy arrays
-  (materialized once per node via `view.get_array()`), because
-  float32/tie-break behavior must stay bit-identical
+  `divide`/`get_without_bit`/`divide_without` are deleted.
+- Entropy/gain expressions stay verbatim on the materialized part arrays
+  — float32/tie-break behavior must stay bit-identical
   (`sum()` vs `np.sum()` summation order matters!).
+- Per-run tracking (replaces flat `abs_splits`): `BuildParams.run` tuples
+  thread `RunOp(abs_pos, bit, kind)` ('strait'/'split') through
+  `create_child`; `coder.runs` = ordered definition sequence per
+  root-to-leaf path (leaf bit-fills implicit), shared prefixes.
+- `coder.abs_straits` = `StraitDef(abs_pos, bit, determined)` per strait
+  event; `determined` = value string at that moment (chars per original
+  position, '.' = undetermined) — the context for common/diverging.
+- New stats sections `==AbsStraits==` (position histogram via
+  `build_bins_n_print`, unique-rule count + top rules) and
+  `==AbsSplits==` (position histogram over per-RUN split occurrences,
+  23,778 — NOT split nodes, 2,046; the root split at abs pos 5 is in all
+  2047 runs). `compare_v0.py` strips both sections before the byte-diff.
+  Raw positions exposed as uint32 arrays for numpy stats (Qs):
+  `coder.abs_strait_pos` (5441), `coder.abs_split_pos` (23778); the run
+  ends with `AbsStraits Qs: [10. 15. 25.]` / `AbsSplits Qs: [10. 21. 27.]`
+  (25/50/75 percentiles) after `END`.
 
 ## Goals
 
@@ -95,9 +110,12 @@ tree, `codes` dict, node tree, avg; 4.4s vs 3.6s):
 - [x] Study Bitty API (`BitFlagArray.py`, `commonEncoding.py`, `Mulitslice.py`)
 - [x] Refactor with absolute bit tracking (SliceView chain, see above)
 - [x] Compare outputs vs baseline (`compare_v0.py` — stdout/codes/nodes identical)
+- [x] Per-run op logs (`coder.runs`) + strait contexts (`StraitDef.determined`)
+      + `==Abs…==` histograms
 - [ ] Goal 1: strait dedup — global rule table outside the tree, using
-      `abs_straits` (56 unique rules, ~5385 slots saved). Design open:
-      rule ids per node vs bitset per rule; interaction with code/decode.
+      `abs_straits`/`runs` (56 unique rules, ~5385 slots saved). Design open:
+      rule ids per node vs bitset per rule; interaction with code/decode;
+      whether ==AbsSplits== should count split nodes instead of run events.
 
 Candidate Bitty feature requests / bug reports for Clara (collect while refactoring):
 

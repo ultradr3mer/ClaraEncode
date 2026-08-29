@@ -2,7 +2,10 @@
 
 Runs both with `coder.print()` enabled (in-memory source patch only, the
 files on disk stay untouched) and compares stdout byte-for-byte, plus the
-resulting codes dict and node tree.
+resulting codes dict and node tree. The refactored coder's extra
+`==AbsStraits==`/`==AbsSplits==` stats sections and the run-end
+percentile lines are stripped before the diff (they have no baseline
+counterpart).
 """
 import contextlib
 import io
@@ -11,6 +14,37 @@ from pathlib import Path
 
 BASE = Path(__file__).resolve().parent
 OUT = Path(r"C:\Users\Clara\AppData\Local\Temp\opencode")
+ABS_MARKER = "==AbsStraits=="
+SPLITS_MARKER = "==AbsSplits=="
+END_MARKER = "\nEND\n"
+
+
+def strip_abs_stats(text: str) -> str:
+    if ABS_MARKER not in text:
+        return text
+    head, _, rest = text.partition(ABS_MARKER)
+    splits_idx = rest.find(SPLITS_MARKER)
+    if splits_idx == -1:
+        return head + rest
+    tail = rest[splits_idx:]
+    q_idx = tail.find("Q[")
+    if q_idx == -1:
+        return head + rest
+    line_end = tail.find("\n", q_idx)
+    if line_end == -1:
+        return head
+    return head + tail[line_end + 1:]
+
+
+def strip_after_end(text: str) -> str:
+    idx = text.find(END_MARKER)
+    if idx == -1:
+        return text
+    return text[:idx + len(END_MARKER)]
+
+
+def normalize(text: str) -> str:
+    return strip_after_end(strip_abs_stats(text))
 
 
 def run(path: Path):
@@ -43,10 +77,10 @@ def main():
     print(f"v0:  {len(out_v0):,} chars, {t_v0:.1f}s")
     print(f"new: {len(out_new):,} chars, {t_new:.1f}s")
 
-    if out_v0 == out_new:
+    if normalize(out_v0) == normalize(out_new):
         print("stdout: IDENTICAL")
     else:
-        d = first_diff(out_v0, out_new)
+        d = first_diff(normalize(out_v0), normalize(out_new))
         print("stdout: DIFFERS, first diff at line", d[0])
         print("  v0 :", d[1])
         print("  new:", d[2])

@@ -20,16 +20,24 @@ session memory: preferences, quirks, observations, open questions.
 
 - Done: `project.md`, `AGENTS.md`, `opencode.json`, baseline `GainCoder_v0.py`
   (pristine, never touch).
-- Done: studied Bitty sources; refactored `GainCoder.py` with absolute bit
-  tracking (SliceView chain over root Bitty — details in `project.md`).
-- Done: `compare_v0.py` harness — refactored run is IDENTICAL to baseline:
-  stdout byte-for-byte (incl. FramePrint tree with `coder.print()` enabled),
-  `codes` dict, node tree, avg. Runtime 4.4s vs 3.6s.
-- Done: dedup preview — 5441 straits = only 56 unique (abs MSB pos, bit)
-  rules; global rule table would save 5385 slots (~99%).
-- Next: goal 1 — design strait dedup (global rule table outside the tree,
-  keyed on absolute positions). Open: rule id encoding per node, how the
-  decoder reconstructs per-node bit sets, effect on flag_len stats.
+- Done: studied Bitty sources; refactored `GainCoder.py` — SliceView chain,
+  view-based candidate scan (`group_by_bit`), per-run op logs
+  (`coder.runs`, `RunOp(abs_pos, bit, kind)`), strait contexts
+  (`StraitDef.determined` = value string at the strait, before the op),
+  `==AbsStraits==`/`==AbsSplits==` histogram stats.
+- Done: `compare_v0.py` (strips the `==Abs…==` sections before diffing):
+  refactored run IDENTICAL to baseline — stdout byte-for-byte, `codes`,
+  node tree, avg. Runtime 10s vs 3.8s (view-scan cost, accepted).
+- Done: dedup numbers — 5441 straits = 56 unique (abs MSB pos, bit) rules;
+  global rule table would save 5385 slots (~99%).
+- Resolved: `==AbsSplits==` stays per-RUN split occurrences (23,778;
+  root split abs pos 5 is in every run); Clara wants raw data as arrays
+  for her own numpy stats — exposed as `coder.abs_strait_pos` (5441) /
+  `coder.abs_split_pos` (23778), uint32, also feeding the print sections.
+  Run end prints 25/50/75 percentiles of both after `END`
+  (straits [10 15 25], splits [10 21 27]).
+- Next: goal 1 — design strait dedup (global rule table, common/diverging
+  analysis over `runs` + `StraitDef.determined`).
 
 ## Domain observations (verified this session)
 
@@ -46,8 +54,9 @@ session memory: preferences, quirks, observations, open questions.
   avg_bits counts chars (2-digit idxs count double). Kept verbatim.
 - FramePrint (`PageManager(realtime=True)`) prints every line as it is
   completed → the full tree display is already in stdout during the build;
-  `coder.print()` repeats it. Redirected runs need `PYTHONUTF8=1`
-  (cp1252 chokes on `↧`/`⟫⟩⟧`).
+  `coder.print()` repeats it AFTER the stats sections (matters for output
+  stripping). Redirected runs need `PYTHONUTF8=1` (cp1252 chokes on
+  `↧`/`⟫⟩⟧`).
 - Numeric exactness: keep the entropy scan on raw arrays with the baseline's
   exact expressions — `sum(ndarray)` (sequential, float32) vs `np.sum()`
   (pairwise) differ; tie-breaking in `get_next_split` depends on it.
