@@ -14,13 +14,20 @@ code cannot block the harness.
 import contextlib
 import io
 import os
+import sys
 import time
 from pathlib import Path
 
 os.environ.setdefault("MPLBACKEND", "agg")
 
 BASE = Path(__file__).resolve().parent
+ROOT = BASE.parent
+V0 = ROOT / "backup" / "GainCoder_v0.py"
+NEW = ROOT / "GainCoder.py"
 OUT = Path(r"C:\Users\Clara\AppData\Local\Temp\opencode")
+
+sys.path.insert(0, str(ROOT))
+
 ABS_MARKER = "==AbsStraits=="
 SPLITS_MARKER = "==AbsSplits=="
 END_MARKER = "\nEND\n"
@@ -91,8 +98,8 @@ def first_diff(a: str, b: str):
 
 
 def main():
-    out_v0, coder_v0, t_v0 = run(BASE / "GainCoder_v0.py", V0_PATCHES)
-    out_new, coder_new, t_new = run(BASE / "GainCoder.py", NEW_PATCHES)
+    out_v0, coder_v0, t_v0 = run(V0, V0_PATCHES)
+    out_new, coder_new, t_new = run(NEW, NEW_PATCHES)
 
     print(f"v0:  {len(out_v0):,} chars, {t_v0:.1f}s")
     print(f"new: {len(out_new):,} chars, {t_new:.1f}s")

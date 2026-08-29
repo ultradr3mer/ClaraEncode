@@ -105,19 +105,25 @@ session memory: preferences, quirks, observations, open questions.
   the open question is resolved. `TreePrinter` replicates the original
   chains verbatim — if the output FORMAT is meant to change, that is now
   the place to touch.
-- `main.py` is unused PyCharm boilerplate — ignore unless Clara says
-  otherwise.
+- `main.py` was unused PyCharm boilerplate — deleted (2026-08-29).
 
 ## How to run the baseline comparison
 
 ```powershell
 $env:PYTHONUTF8='1'
-python compare_v0.py    # venv python; runs BOTH coders, diffs stdout/codes/nodes
+python tests\compare_v0.py    # venv python; runs BOTH coders, diffs stdout/codes/nodes
 ```
-Expected: `stdout: IDENTICAL`, `codes: IDENTICAL`, `nodes: IDENTICAL`
+Runs from any cwd (inserts the project root into sys.path). Expected:
+`stdout: IDENTICAL`, `codes: IDENTICAL`, `nodes: IDENTICAL`
 (7,524,668 chars with `coder.print()` enabled in-memory). Plain baseline
-stats: `python GainCoder_v0.py` → Codes: 2047, Nodes: 2046, Straits: 5441,
-Leafs: 2047, avg_bits=16.280, compression=0.509.
+stats: `python backup\GainCoder_v0.py` → Codes: 2047, Nodes: 2046,
+Straits: 5441, Leafs: 2047, avg_bits=16.280, compression=0.509.
+
+## Layout
+
+- `tests/` — `test_tree.py` (preconfigured-tree tests),
+  `compare_v0.py` (baseline harness; reads `backup/GainCoder_v0.py`).
+- `backup/` — pristine `GainCoder_v0.py` (never touch).
 
 ## Basic Tree structure
 

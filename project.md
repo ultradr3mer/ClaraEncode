@@ -37,6 +37,9 @@ Dependencies (editable installs, see `requirements.local.txt`):
   `compression_ratio` vs. original width.
 - Display: `.` = undefined bit, `0/1` = defined, `X` = split; entropy digits
   = per-bit bitwise entropy scaled to 0–9; `↧` rows = position diffs.
+- Baseline: `backup/GainCoder_v0.py` (pristine, never touch); harness
+  `tests/compare_v0.py`; tree tests `tests/test_tree.py`.
+- Layout: `tests/` (test_tree, compare_v0), `backup/` (v0 baseline).
 
 ## Baseline stats (input_layernorm.weight.bin)
 

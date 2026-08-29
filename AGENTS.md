@@ -7,5 +7,8 @@ fixed-width integer data).
 - `clarautils` ← `F:\source\BitFlagArray` — before working with it, read
   `F:\source\BitFlagArray\clarautils\AGENTS.md` (API map, pitfalls).
 - `clarastrings` ← `F:\source\PrintUtil` (FramePrint display output).
-- Baseline for comparison: `GainCoder_v0.py` (untouched copy of the original).
+- Baseline for comparison: `backup/GainCoder_v0.py` (untouched copy of
+  the original; harness `tests/compare_v0.py`).
+- Tests: `tests/` (`test_tree.py` preconfigured-tree tests,
+  `python tests/test_tree.py`).
 - Session memory: `remember.md` (preferences, quirks, open questions).
