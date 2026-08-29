@@ -122,7 +122,7 @@ Straits: 5441, Leafs: 2047, avg_bits=16.280, compression=0.509.
 ## Layout
 
 - `claraenc/` — package: `GainCoder.py`, `tree_printer.py`, `entropy.py`,
-  `bf16.py`, `Huffman.py` (Claras Scratch-Kopie, Imports teils extern).
+  `bf16_v0.py`, `Huffman.py` (Claras Scratch-Kopie, Imports teils extern).
   No `__init__.py`, namespace package. `python claraenc\GainCoder.py`
   works directly (sys.path bootstrap at top; harmless on `-m`/import).
 - `clarautil_doc/` — clarautils-Dokumentation (AGENTS.md, Multislice.md,
@@ -134,7 +134,7 @@ Straits: 5441, Leafs: 2047, avg_bits=16.280, compression=0.509.
   (`C:\Users\Clara\.config\opencode\skills\implement-with-bitty\`) —
   triggert bei Bitty/clarautils-Bitarbeit; braucht ggf. opencode-Restart
   zum Erscheinen in der Skill-Liste.
-- `claraenc/bf16.py` auf das Muster umgestellt (Claras Fix der
+- `backup/bf16_v0.py` auf das Muster umgestellt (Claras Fix der
   Signatur vollendet): `bf16_parts`/`bf16_to_f32` nehmen NBitArray
   (Bitty/View-Kette), kein Bitty-Wrap in Funktionen;
   `read_bf16` liefert EIN Bitty. Tests entsprechend (Bitty einmal,

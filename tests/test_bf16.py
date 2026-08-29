@@ -1,4 +1,4 @@
-"""Validation of the Bitty-based bf16 parser (claraenc/bf16.py) against
+"""Validation of the Bitty-based bf16 parser (claraenc/bf16_v0.py) against
 the reference implementations from Clara's bf16 scratch files
 (calc_bf16_parts, calc_bf_16_from_uint16, calc_f32).
 
@@ -13,7 +13,7 @@ import numpy as np
 
 from clarautils import Bitty
 
-from claraenc.bf16 import bf16_parts, bf16_to_f32, read_bf16
+from backup.bf16_v0 import bf16_parts, bf16_to_f32, read_bf16
 
 
 def bitmask(length):

@@ -39,7 +39,7 @@ Dependencies (editable installs, see `requirements.local.txt`):
   = per-bit bitwise entropy scaled to 0–9; `↧` rows = position diffs.
 - Baseline: `backup/GainCoder_v0.py` (pristine, never touch); harness
   `tests/compare_v0.py`; tree tests `tests/test_tree.py`; bf16 parsing
-  `claraenc/bf16.py` (Bitty-based, validated by `tests/test_bf16.py`
+  `backup/bf16_v0.py` (Bitty-based, validated by `tests/test_bf16.py`
   against the scratch references now in `backup/`).
 - Layout: `claraenc/` (coder package incl. bf16), `tests/`, `backup/`
   (v0 baseline + bf16 scratch).
