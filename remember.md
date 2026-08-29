@@ -140,10 +140,22 @@ Straits: 5441, Leafs: 2047, avg_bits=16.280, compression=0.509.
   `read_bf16` liefert EIN Bitty. Tests entsprechend (Bitty einmal,
   `get_array()` nur für die Referenzen) — 5/5 grün, exhaustiv über
   alle 65536 Werte.
+- `claraenc/bf16_bitty.py` — Claras Helper-Style-Implementierung
+  (split_i/.b[]-Views/.read()/get_item_indices), verglichen gegen
+  `backup/bf16_v0.py` (einfacher Stil, validierte Referenz). Vergleich
+  exhaustive über alle 65536 Werte + random + echte Daten → IDENTICAL
+  (fixiert in `tests/test_bf16.py::test_bitty_impl_matches_v0`). Dabei
+  3 Bugs in bf16_bitty gefunden+gefixt: `.read()` liefert NBitAryOnly
+  (kein `.astype()`), `np.inf * NBitAryOnly` TypeError, und
+  `np.inf * sign_bit` (Sign ist 0/1 → -inf wurde +inf, +inf wurde nan).
+  Vollständige Differenz-Notizen (v0 vs Helper-Stil) in
+  `clarautil_doc/HowToBitty.md`; Skill-Beispiel auf bf16_bitty
+  umgestellt. Kandidat-Verbesserung clarautils: `.read()` direkt
+  ndarray liefern.
 - `tests/` — `test_tree.py` (preconfigured-tree tests), `test_bf16.py`
-  (bf16 validation, reference fns copied from the scratch files),
-  `compare_v0.py` (baseline harness; reads `backup/GainCoder_v0.py` +
-  `claraenc/GainCoder.py`).
+  (bf16 validation: v0 gegen Clara-Scratch-Referenzen + bf16_bitty gegen
+  v0 exhaustive), `compare_v0.py` (baseline harness; reads
+  `backup/GainCoder_v0.py` + `claraenc/GainCoder.py`).
 - `backup/` — pristine `GainCoder_v0.py` (entropy import updated by
   Clara to `claraenc.entropy` after the package move; rest untouched)
   + Clara's bf16 scratch files (`bf16_test.py`, `bf16_fact.py` — kept

@@ -14,6 +14,7 @@ import numpy as np
 from clarautils import Bitty
 
 from backup.bf16_v0 import bf16_parts, bf16_to_f32, read_bf16
+from claraenc.bf16_bitty import bf16_to_f32 as bf16_to_f32_bitty
 
 
 def bitmask(length):
@@ -93,16 +94,25 @@ def test_to_f32_normals_match_manual_formula():
 
 def test_real_data():
     path = Path(r"F:\source\sandbox314\modelCompression\data\model.embed_tokens.weight.bin")
-    data = read_bf16(path, 1024)
-    values = data.get_array()
-    assert len(data) == 1024
-    assert np.array_equal(bf16_to_f32(data),
+    values = np.asarray(read_bf16(path, 1024))
+    assert len(values) == 1024
+    assert np.array_equal(bf16_to_f32(values),
                           calc_f32_from_uint16(values), equal_nan=True)
-    sign, exp, mantissa = bf16_parts(data)
+    sign, exp, mantissa = bf16_parts(values)
     ref_sign, ref_mantissa, ref_exp = calc_bf16_parts(values)
     assert np.array_equal(sign, ref_sign)
     assert np.array_equal(exp, ref_exp)
     assert np.array_equal(mantissa, ref_mantissa)
+
+
+def test_bitty_impl_matches_v0():
+    values = np.arange(65536, dtype=np.uint16)
+    assert np.array_equal(bf16_to_f32(values),
+                          bf16_to_f32_bitty(values), equal_nan=True)
+    rng = np.random.default_rng(7)
+    sample = rng.integers(0, 65536, size=10000, dtype=np.uint16)
+    assert np.array_equal(bf16_to_f32(sample),
+                          bf16_to_f32_bitty(sample), equal_nan=True)
 
 
 def main():

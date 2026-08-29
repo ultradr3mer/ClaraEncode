@@ -19,10 +19,10 @@ def bf16_to_f32(values: npt.ArrayLike) -> np.ndarray:
         mantissa_bits = reg.b[MANTISSA]
 
         sign_ary = np.where(sign_bits == 1, -1.0, 1.0)
-        mantissa_ary = mantissa_bits.read().astype(np.float64) / 128.0
+        mantissa_ary = mantissa_bits.read().get_array().astype(np.float64) / 128.0
         result = sign_ary * np.where(exp_bits == 0,
                                      mantissa_ary * 2.0 ** -126,
-                                     (1.0 + mantissa_ary) * 2.0 ** (exp_bits.read().astype(np.int64) - 127))
+                                     (1.0 + mantissa_ary) * 2.0 ** (exp_bits.read().get_array().astype(np.int64) - 127))
         return result
 
     """bf16 (uint16) to float32. Full IEEE semantics: normals, subnormals
@@ -35,7 +35,8 @@ def bf16_to_f32(values: npt.ArrayLike) -> np.ndarray:
 
     inf, nan = special.split_i(special.b[MANTISSA] == 0)
     out_ary[nan.get_item_indices()] = np.nan
-    out_ary[inf.get_item_indices()] = np.inf * inf.b[SIGN].read()
+    inf_sign = inf.b[SIGN].read().get_array()
+    out_ary[inf.get_item_indices()] = np.where(inf_sign == 1, -np.inf, np.inf)
 
     return out_ary
 
