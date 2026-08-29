@@ -8,7 +8,7 @@ from pathlib import Path
 from clarastrings import FramePrint
 from clarastrings import BeginItemOptions, ParentChildRelation, ItemClosingBeavior
 from clarautils.commonEncoding import get_bits, get_number, symbol_to_str, get_bitmask
-from entropy import get_bitwise_entropy as individual_entropy_optimized
+from entropy import get_bitwise_entropy
 
 
 def get_bit_count(value: int):
@@ -193,7 +193,7 @@ class GainCoder:
         return self.avg_bits
 
     def get_next_split(s, data, bit_count):
-        begin_entropy_list = individual_gini_optimized(data, bit_count)
+        begin_entropy_list = get_bitwise_entropy(data, bit_count)
         begin_entropy = sum(begin_entropy_list)
         max_g = 0
         max_with_parts = None
@@ -204,8 +204,8 @@ class GainCoder:
         increases = []
         for i in range(bit_count):
             with_parts, wout_parts = divide_without(data, i)
-            with_e_list = individual_gini_optimized(with_parts, bit_count - 1)
-            wout_e_list = individual_gini_optimized(wout_parts, bit_count - 1)
+            with_e_list = get_bitwise_entropy(with_parts, bit_count - 1)
+            wout_e_list = get_bitwise_entropy(wout_parts, bit_count - 1)
             with_g = begin_entropy - np.sum(with_e_list)
             wout_g = begin_entropy - np.sum(wout_e_list)
             gain = (with_g * len(with_parts) + wout_g * len(wout_parts)) / (len(with_parts) + len(wout_parts))
@@ -379,7 +379,7 @@ class GainCoder:
 
             bits = get_bits(full)
             int = get_number(bits)
-            codes[int] = params.code
+            codes[int.value] = params.code
 
             leaf_count += 1
             return leaf_bits
@@ -458,7 +458,7 @@ class GainCoder:
         print(self.mgr)
 
 
-base = Path("bins")
+base = Path("F:\\source\\sandbox314\\modelCompression\\bins")
 
 bits_to_shift = 0
 bits_to_take = 32
