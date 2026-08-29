@@ -458,6 +458,30 @@ class GainCoder:
     def print(self):
         print(self.mgr)
 
+def plot_bit_definition_order(coder):
+    strait_qs = np.array([np.percentile(p, [25, 50, 75]) if len(p) > 0 else [0, 0, 0]
+                          for p in coder.strait_levels])
+    split_qs = np.array([np.percentile(p, [25, 50, 75]) if len(p) > 0 else [0, 0, 0]
+                         for p in coder.split_levels])
+    strait_order = np.argsort(strait_qs.mean(axis=1))
+    split_order = np.argsort(split_qs.mean(axis=1))
+    print(f"AbsStraits sorted (pos, [q25, q50, q75]): "
+          f"{[(int(p), q.tolist()) for p, q in zip(strait_order, strait_qs[strait_order])]}")
+    print(f"AbsSplits sorted (pos, [q25, q50, q75]): "
+          f"{[(int(p), q.tolist()) for p, q in zip(split_order, split_qs[split_order])]}")
+
+    import matplotlib.pyplot as plt
+    fig, (ax_straits, ax_splits) = plt.subplots(2, 1, figsize=(12, 8))
+    for ax, levels, order, title in ((ax_straits, coder.strait_levels, strait_order, "Strait levels per abs bit pos"),
+                                     (ax_splits, coder.split_levels, split_order, "Split levels per abs bit pos")):
+        ax.boxplot([levels[p] for p in order])
+        ax.set_xticks(np.arange(1, len(order) + 1), [int(p) for p in order])
+        ax.set_title(title)
+        ax.set_xlabel("abs bit pos")
+        ax.set_ylabel("level")
+    fig.tight_layout()
+    fig.savefig("levels_boxplot.png")
+    plt.show()
 
 base = Path("F:\\source\\sandbox314\\modelCompression\\bins")
 
@@ -490,12 +514,6 @@ for path in base.glob("model.layers.0.input_layernorm.weight.bin"):
     ratio_bits = coder.compression_ratio(bits_to_take)
 
     # coder.print()
-
-    print(f"{name}: avg_bits={avg_bits:.3f}, compression={ratio_bits:.3f}, {avg_bits - bits_to_take:.3f}")
-    print("END")
-    print(f"AbsStraits Qs: {[np.percentile(p, [25, 50, 75]) if len(p) > 0 else [0,0,0] for p in coder.strait_levels]}")
-    print(f"AbsSplits Qs: {[np.percentile(p, [25, 50, 75]) if len(p) > 0 else [0,0,0] for p in coder.split_levels]}")
-
 
 
     # total = np.sum(counts)

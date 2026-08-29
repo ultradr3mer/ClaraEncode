@@ -5,12 +5,16 @@ files on disk stay untouched) and compares stdout byte-for-byte, plus the
 resulting codes dict and node tree. The refactored coder's extra
 `==AbsStraits==`/`==AbsSplits==` stats sections and the run-end
 percentile lines are stripped before the diff (they have no baseline
-counterpart).
+counterpart). Sets MPLBACKEND=agg so the refactored coder's plt.show()
+cannot block the harness.
 """
 import contextlib
 import io
+import os
 import time
 from pathlib import Path
+
+os.environ.setdefault("MPLBACKEND", "agg")
 
 BASE = Path(__file__).resolve().parent
 OUT = Path(r"C:\Users\Clara\AppData\Local\Temp\opencode")

@@ -1,2 +1,3 @@
 pip install -e F:\source\BitFlagArray
 pip install -e F:\source\PrintUtil
+pip install matplotlib

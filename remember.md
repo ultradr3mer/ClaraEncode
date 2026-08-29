@@ -37,6 +37,12 @@ session memory: preferences, quirks, observations, open questions.
   straits). `RunOp` now carries `level`; runs are self-contained.
   Straits kept as TWO structures (not one merged) so kinds stay
   distinguishable — merge on request.
+- Done: run-end analysis — Clara's per-position Qs prints + sorted
+  (32×3 → argsort by row-avg, real positions kept) prints + 2-panel
+  boxplot (`levels_boxplot.png`, matplotlib installed into venv).
+  Nice early result: positions 1,2,3,17,18,19 are strait-defined at
+  CONSTANT levels 1–6 in every run (perfect global-rule dedup
+  candidates); pos 20 always splits at level 26.
 - Resolved: `==AbsSplits==` stays per-RUN split occurrences (23,778;
   root split abs pos 5 is in every run); Clara wants raw data as arrays
   for her own numpy stats — exposed as `coder.abs_strait_pos` (5441) /

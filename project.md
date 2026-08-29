@@ -91,7 +91,11 @@ tree, `codes` dict, node tree, avg; 10s vs 3.8s — scan now view-based):
   Raw positions exposed as uint32 arrays for numpy stats (Qs):
   `coder.abs_strait_pos` (5441), `coder.abs_split_pos` (23778); the run
   ends with `AbsStraits Qs: [10. 15. 25.]` / `AbsSplits Qs: [10. 21. 27.]`
-  (25/50/75 percentiles) after `END`.
+  (25/50/75 percentiles) after `END`, plus per-position 25/50/75 arrays
+  sorted by row-avg with real positions and a 2-panel boxplot of the
+  level distributions saved to `levels_boxplot.png` (matplotlib, added to
+  `requirements.local.txt`; `compare_v0.py` forces MPLBACKEND=agg so
+  `plt.show()` never blocks the harness).
 
 ## Goals
 
