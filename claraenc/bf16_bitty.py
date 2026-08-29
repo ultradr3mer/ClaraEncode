@@ -3,12 +3,13 @@ from typing import Tuple
 import numpy as np
 import numpy.typing as npt
 
-from clarautils import Bitty, select_bits, NBitArray
+from clarautils import Bitty, NBitArray
 
 SIGN = slice(0, 1)
 EXPONENT = slice(1, 9)
 MANTISSA = slice(9, 16)
 
+BF16_SEM_SLICES = [SIGN, EXPONENT, MANTISSA]
 
 def bf16_to_f32(values: npt.ArrayLike) -> np.ndarray:
     def build_regular(reg: NBitArray) -> np.ndarray:

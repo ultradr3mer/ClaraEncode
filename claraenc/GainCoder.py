@@ -457,7 +457,7 @@ if __name__ == "__main__":
             buffer = f.read()
         name = path.name
 
-        x = np.frombuffer(buffer, dtype=np.uint32)
+        x = np.frombuffer(buffer, dtype=np.bf)
 
         values, counts = np.unique(x, return_counts=True)
 
