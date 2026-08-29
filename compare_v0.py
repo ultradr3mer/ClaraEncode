@@ -2,11 +2,14 @@
 
 Runs both with `coder.print()` enabled (in-memory source patch only, the
 files on disk stay untouched) and compares stdout byte-for-byte, plus the
-resulting codes dict and node tree. The refactored coder's extra
-`==AbsStraits==`/`==AbsSplits==` stats sections and the run-end
-percentile lines are stripped before the diff (they have no baseline
-counterpart). Sets MPLBACKEND=agg so the refactored coder's plt.show()
-cannot block the harness.
+resulting codes dict and node tree. The refactored coder's display is
+decoupled behind build events and off by default, so the harness also
+attaches a realtime TreePrinter to it (v0 streams its tree during the
+build via PageManager realtime printing; both then print the tree a
+second time through coder.print()). The refactored coder's extra
+`==AbsStraits==`/`==AbsSplits==` stats sections are stripped before the
+diff (they have no baseline counterpart). Sets MPLBACKEND=agg so plotting
+code cannot block the harness.
 """
 import contextlib
 import io
@@ -21,6 +24,15 @@ OUT = Path(r"C:\Users\Clara\AppData\Local\Temp\opencode")
 ABS_MARKER = "==AbsStraits=="
 SPLITS_MARKER = "==AbsSplits=="
 END_MARKER = "\nEND\n"
+
+V0_PATCHES = [
+    ("# coder.print()", "coder.print()"),
+]
+
+NEW_PATCHES = V0_PATCHES + [
+    ("coder = GainCoder(values, counts, bits_to_take)",
+     "coder = GainCoder(values, counts, bits_to_take, display=TreePrinter(realtime=True))"),
+]
 
 
 def strip_abs_stats(text: str) -> str:
@@ -51,8 +63,12 @@ def normalize(text: str) -> str:
     return strip_after_end(strip_abs_stats(text))
 
 
-def run(path: Path):
-    src = path.read_text(encoding="utf-8").replace("# coder.print()", "coder.print()")
+def run(path: Path, patches):
+    src = path.read_text(encoding="utf-8")
+    for old, new in patches:
+        if old not in src:
+            raise ValueError(f"patch anchor missing in {path.name}: {old!r}")
+        src = src.replace(old, new)
     buf = io.StringIO()
     globs = {"__name__": "__main__", "__file__": str(path)}
     t0 = time.perf_counter()
@@ -75,8 +91,8 @@ def first_diff(a: str, b: str):
 
 
 def main():
-    out_v0, coder_v0, t_v0 = run(BASE / "GainCoder_v0.py")
-    out_new, coder_new, t_new = run(BASE / "GainCoder.py")
+    out_v0, coder_v0, t_v0 = run(BASE / "GainCoder_v0.py", V0_PATCHES)
+    out_new, coder_new, t_new = run(BASE / "GainCoder.py", NEW_PATCHES)
 
     print(f"v0:  {len(out_v0):,} chars, {t_v0:.1f}s")
     print(f"new: {len(out_new):,} chars, {t_new:.1f}s")

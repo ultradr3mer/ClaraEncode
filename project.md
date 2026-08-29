@@ -54,6 +54,29 @@ Dedup analysis (refactored coder, `coder.abs_straits`, 2026-08-29):
 **5385** strait slots (~99%). Splits use 26 of 32 absolute positions
 (peak: pos 31 ×307, pos 30 ×266, pos 29 ×227).
 
+## Refactor state (2026-08-29, round 3: events + display extraction)
+
+`_build()` no longer touches FramePrint. The coder emits semantic build
+events (`RootBegin`, `NodeBegin`, `Strait`, `NodeSplit`, `RootSplit`,
+`NodeEnd`, `Leaf` — NamedTuples defined in `tree_printer.py`) via
+`self.emit(...)`; `GainCoder(values, counts, bit_count, display=None)`
+takes an optional display listener. `tree_printer.py` holds all display
+code: `Char`, `get_diff`, the entropy digit-string helpers (moved off
+`EntropyDiff`, which is now pure data), the event types and
+`TreePrinter(realtime=False)` (replicates the original FramePrint chains
+verbatim; `handle(event)` dispatches per event type, `print()` dumps the
+tree). `coder.print()` delegates to the display (no-op without one).
+Stats printing moved from `_build` into `coder.print_stats()` (also
+computes `leaf_ext`/`bins_ext`); counters/lengths are coder attributes.
+Dead code removed (`DataStrait`, unused `s_counts` in `_build`, stray
+`pass`es). Main tail restored to v0 parity (`# coder.print()` marker,
+avg/compression line, `END`) — needed as patch anchors for the harness.
+`compare_v0.py` now applies per-file patches: enable `# coder.print()`
+in both + attach `display=TreePrinter(realtime=True)` to the refactored
+coder (v0 streams its tree realtime during build; the patched new coder
+does the same, so both print the tree twice). Verified: stdout
+byte-identical (7,524,668 chars), codes, node tree, avg.
+
 ## Refactor state (2026-08-29, round 2)
 
 `GainCoder.py` is refactored, behavior-identical to `GainCoder_v0.py`

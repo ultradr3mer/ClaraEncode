@@ -51,6 +51,17 @@ session memory: preferences, quirks, observations, open questions.
   (straits [10 15 25], splits [10 21 27]).
 - Next: goal 1 — design strait dedup (global rule table, common/diverging
   analysis over `runs` + `StraitDef.determined`).
+- Done (round 3): event decoupling — `_build` emits events
+  (`RootBegin/NodeBegin/Strait/NodeSplit/RootSplit/NodeEnd/Leaf`),
+  display optional (`display=None` default → no string building at all,
+  faster runs), all FramePrint code in `tree_printer.py`
+  (`TreePrinter(realtime=)`), stats in `coder.print_stats()`. Main tail
+  restored to v0 parity (`# coder.print()` marker + avg/END lines) — the
+  harness needs those anchors. `compare_v0.py`: per-file patches (v0:
+  enable print; new: enable print + attach `TreePrinter(realtime=True)`);
+  loud `ValueError` if an anchor is missing. Verified IDENTICAL
+  (stdout/codes/nodes/avg) after the refactor. NOTE: Clara had commented
+  out the plot calls in main (`plot_*` stay commented until wanted).
 
 ## Domain observations (verified this session)
 
@@ -90,10 +101,10 @@ session memory: preferences, quirks, observations, open questions.
 
 ## Open questions / verify before "fixing"
 
-- Display logic is interwoven with tree building inside `_build()`
-  (FramePrint `begin_item`/`fill_to`/`make_next_line` chains). Kept verbatim
-  in the refactor; separating it further is only worth it once the output
-  format is meant to change.
+- Display logic is decoupled now (round 3: build events + `tree_printer.py`);
+  the open question is resolved. `TreePrinter` replicates the original
+  chains verbatim — if the output FORMAT is meant to change, that is now
+  the place to touch.
 - `main.py` is unused PyCharm boilerplate — ignore unless Clara says
   otherwise.
 
