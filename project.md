@@ -60,6 +60,39 @@ Dedup analysis (refactored coder, `coder.abs_straits`, 2026-08-29):
 **5385** strait slots (~99%). Splits use 26 of 32 absolute positions
 (peak: pos 31 ×307, pos 30 ×266, pos 29 ×227).
 
+## BF16 prepare step (2026-08-30, `claraenc/PrepareBf16.py`)
+
+Clara's final design (replaced the agent's gate/trim variant same day):
+
+- `SortedFlippedAry(bit_key, flipped_bits, ary)` + classmethods.
+  `build_from(ary)`: per-flag means from ONE `get_bitwise()` (shape is
+  `(items, bits)` → axis 0); `flip_mask = round(means)` flips every flag
+  leaning toward 1 — defined-1 bits included → become 0; `flip_data_ary`
+  XORs the packed mask (`CommonNBitSc.value`); `flip_means_ary` = 1 − mean
+  where flipped (mask must be bool-cast — uint8 0/1 as index is FANCY
+  indexing, not masking); ONE global `np.argsort(-means, kind='stable')`
+  (numpy has no `descending=` kwarg); `sorted_data = flipped.b[sort_idx]`
+  kept as a full-width SliceView (NO trim/gate), `bit_key =
+  arange[sort_idx]` = source position of each target slot.
+- `get_ary()` inverts: `ary.b[argsort(bit_key)]` (the INVERSE permutation —
+  reusing `bit_key` would square it) then XOR the same mask (involution).
+  `prepare_uint16` builds and RAISES unless `get_ary() == original` —
+  self-checking. Prints include the "NewBitsRequired" estimate (sorted
+  flipped means vs sorted original means).
+- Real data: 3 defined exponent MSBs (exp=127) flip to 0 and sort to the
+  tail: bit_key `[13 12 15 14 11 8 10 7 9 6 5 0 4 | 1 2 3]`.
+- `tests/test_prepare_bf16.py` (4 tests: hand-computed + real-data
+  round-trip). Seven issues fixed to get Clara's version running: missing
+  comma (SyntaxError); `descending=` kwarg on np.argsort/np.sort; uint8
+  fancy-index mask; XOR vs `CommonNBitSc` (needs `.value`); `get_ary`
+  permutation direction; `np.ones_like(ary) - result[mask]` shape
+  mismatch; commented-out `return result`.
+- `part.get_bitwise_entropy()` method on NBitArray delivered by the Bitty
+  instance (forwards to `commonEncoding.get_bitwise_entropy`, MSB-first).
+- `claraenc/entropy.py` stays LOCAL for GainCoder on purpose: its
+  LSB-first per-bit ordering is baked into v0 parity (split tie-breaking);
+  do NOT migrate GainCoder to the clarautils function.
+
 ## Tree structure + tests (2026-08-29, round 4)
 
 `coder.tree` is the strait-augmented tree (Clara's sketch): every
@@ -175,22 +208,37 @@ tree, `codes` dict, node tree, avg; 10s vs 3.8s — scan now view-based):
 - [x] Compare outputs vs baseline (`compare_v0.py` — stdout/codes/nodes identical)
 - [x] Per-run op logs (`coder.runs`) + strait contexts (`StraitDef.determined`)
       + `==Abs…==` histograms
+- [x] BF16 prepare step (`claraenc/PrepareBf16.py` + `tests/test_prepare_bf16.py`,
+      2026-08-30 — see section above; Clara's `SortedFlippedAry.build_from`
+      design, agent-fixed to run)
 - [ ] Goal 1: strait dedup — global rule table outside the tree, using
       `abs_straits`/`runs` (56 unique rules, ~5385 slots saved). Design open:
       rule ids per node vs bitset per rule; interaction with code/decode;
       whether ==AbsSplits== should count split nodes instead of run events.
+- [x] clarautils `get_item_indices`/`get_bit_indices` clamp bugs fixed
+      (Bitty instance, 2026-08-30) — `tests/test_bf16.py` 6/6 again. The
+      fix unmasked a ±inf sign swap in `bf16_bitty.py` (`inf_pos` was the
+      SIGN==1 group) — fixed same day, all suites green.
+- [ ] `compare_v0.py` currently BLOCKED: `claraenc/GainCoder.py` main reads
+      the bin with `dtype=np.bf` (Clara's committed WIP — no such numpy
+      dtype). Needs uint16 + Bitty like PrepareBf16 before the harness can
+      run again.
 
 Candidate Bitty feature requests / bug reports for Clara (collect while refactoring):
 
-- **BUG** `SliceView.get_bit_indices()`: clamps slice keys via
-  `key.indices(self.get_bit_count())` — but `bit_slice` is in ROOT
-  coordinates. For a contiguous `bit_slice` (e.g. `slice(4, 32)` after
-  removing a prefix of bits) with view bit_count < root bit_count the
-  returned list is truncated. Should use the root bit count.
-  Workaround in GainCoder: `get_indices(view.bit_slice, root_bc)`.
+- FIXED 2026-08-30 (Bitty instance): `SliceView.get_bit_indices()` /
+  `get_item_indices()` now resolve their ROOT-coordinate slices against
+  the ROOT counts (new `SliceView.get_root_data()` walk) instead of
+  clamping against local view counts. Verified: nested `split_i` repro +
+  `tests/test_bf16.py` 6/6. The GainCoder workaround
+  (`get_indices(view.bit_slice, root_bc)`) is now removable — do it when
+  `compare_v0` runs again (currently blocked, see State/next steps).
 - `get_bit_indices()` exists only on `SliceView`; expose it (or an
   equivalent local→absolute mapping) on `NBitArray`/`Bitty` roots so the
   `SliceView(Bitty(...))` wrapper isn't needed.
+- DELIVERED 2026-08-30: `get_bitwise_entropy` as clarautils function
+  (`commonEncoding.py`, NBitArray-vs-plain dispatch, MSB-first) AND
+  method on `NBitArray`.
 
 ## Known warts (do not silently "fix")
 

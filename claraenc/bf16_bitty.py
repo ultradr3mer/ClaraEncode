@@ -37,7 +37,7 @@ def bf16_to_f32(values: npt.ArrayLike) -> np.ndarray:
     inf, nan = special.split_i(special.b[MANTISSA] == 0)
     out_ary[nan.get_item_indices()] = np.nan
 
-    inf_pos, inf_neg = inf.split_i(inf.b[SIGN] == 1)
+    inf_neg, inf_pos = inf.split_i(inf.b[SIGN] == 1)
     out_ary[inf_pos.get_item_indices()] = np.inf
     out_ary[inf_neg.get_item_indices()] = -np.inf
 

@@ -16,6 +16,33 @@ session memory: preferences, quirks, observations, open questions.
 - Bitty feature requests: write them down (candidate list in `project.md`),
   Clara implements them — "it will be done".
 
+## Session state (2026-08-30)
+
+- `get_bitwise_entropy` moved to clarautils via the Bitty instance: function
+  (`commonEncoding.py`, `get_bitwise_entropy(a, bit_count=None)` —
+  NBitArray dispatch, MSB-first) + `NBitArray.get_bitwise_entropy()` method.
+  Verified (their 7 tests + direct calls).
+- `claraenc/PrepareBf16.py`: the agent's gate/trim variant was same-day
+  replaced by Clara's own `SortedFlippedAry.build_from` design (full-width
+  SliceView, no gate/trim, self-checking `get_ary`, fields
+  bit_key/flipped_bits/ary). Agent fixed 7 issues to get it running
+  (missing comma, np `descending=` kwarg on argsort/sort, uint8 0/1 mask
+  fancy-indexed instead of bool, XOR against `CommonNBitSc` without
+  `.value`, `get_ary` must gather with the INVERSE permutation
+  `argsort(bit_key)`, `ones_like(ary) - result[mask]` shape mismatch,
+  commented-out `return result`). Tests rewritten for her API, 4/4.
+- clarautils `SliceView.get_item_indices` clamp bug (root-coordinate slice
+  vs LOCAL count) FIXED by the Bitty instance (new `get_root_data()` walk;
+  `get_bit_indices` fixed the same way). Verified: nested split_i repro +
+  `tests/test_bf16.py` 6/6.
+- The fix UNMASKED a ±inf sign swap in `bf16_bitty.py` (`inf_pos` was the
+  SIGN==1 = negative group; before, the clamp bug made both writes land on
+  empty indices). Fixed — all suites green (bf16 6/6, prepare 4/4, tree 7/7).
+- BLOCKED: `compare_v0.py` — GainCoder.py main has `dtype=np.bf`
+  (Clara's committed WIP; no such numpy dtype). `test_tree.py` 7/7 still
+  green as coder-parity proxy. `claraenc/entropy.py` deliberately NOT
+  migrated to clarautils (LSB-first ordering is v0-parity-relevant).
+
 ## Session state (2026-08-29, evening)
 
 - Done: `project.md`, `AGENTS.md`, `opencode.json`, baseline `GainCoder_v0.py`
