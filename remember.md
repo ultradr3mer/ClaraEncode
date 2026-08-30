@@ -18,6 +18,29 @@ session memory: preferences, quirks, observations, open questions.
 
 ## Session state (2026-08-30)
 
+- `analyze_strait_values` (Claras Wunsch: was die values, bei denen eine
+  strait definiert wurde, gemeinsam haben — günstig, post-hoc): neue
+  Methode, aufgerufen aus `print_stats`, printed `==StraitValueCommon==`
+  INNERHALB der ==AbsStraits==-Region → compare_v0 stripping greift
+  automatisch. Pro unique (abs_pos, bit)-Regel: leaf values aus `runs` +
+  `codes` (Reihenfolge 1:1, beide in `create_leaf` geschrieben — kein
+  Re-Walk), konstante Bits als Maske ('1'/'0' konstant, '.' variierend),
+  `implies` = andere Regeln, die für JEDEN Wert der Gruppe gelten
+  (Datensatz-Konstanten = Root-Regeln einmal im Header, aus implies
+  gefiltert), `ctx` = Anzahl verschiedener `determined`-Kontexte.
+  Realdaten: Top-Regeln (10=0 ×202 …) teilen NUR die 6 Datensatz-
+  Konstanten + eigenes Bit (const=7, implies=-), 202 verschiedene
+  Pfad-Kontexte → keine versteckte Wert-Abhängigkeit; 20=1 deckt 1999
+  der 2047 Leaves ab; 46/56 standalone; most implied 20=1×6.
+  Assert (eigenes Bit konstant in der Gruppe) validiert die
+  Rekonstruktion — hielt auf Realdaten + test_tree.
+- compare_v0 WIEDER GRÜN: Claras Main liest wieder uint32 (np.bf-WIP
+  vorbei); zwei tolerante In-Memory-Patches: Plot-Aufrufe werden für den
+  Paritätslauf auskommentiert (nur wenn auf Platte aktiv; kein v0-
+  Gegenstück, keine png-Nebenwirkungen) und `coder =
+  parse_from_np_array(...)` (coder war seit dem parse-Refactor
+  funktionslokal; `parse_from_np_array` gibt den coder jetzt zurück).
+  stdout/codes/nodes IDENTICAL, 9.4s vs 3.8s.
 - `get_bitwise_entropy` moved to clarautils via the Bitty instance: function
   (`commonEncoding.py`, `get_bitwise_entropy(a, bit_count=None)` —
   NBitArray dispatch, MSB-first) + `NBitArray.get_bitwise_entropy()` method.

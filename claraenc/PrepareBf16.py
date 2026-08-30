@@ -5,6 +5,8 @@ import numpy as np
 import numpy.typing as npt
 import sys
 
+from claraenc.GainCoder import parse_from_np_array
+
 if globals().get("__package__", "") in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -96,9 +98,9 @@ class SortedFlippedAry(NamedTuple): # Die Bits sind sortiert, nicht die items
 
         def get_slices_of_len(n: int):
             return [np.unique(sorted_data.b[r:r+n].read(), return_counts=True) for r in range(0,32,n)]
-        #
-        # slices_of_2 = get_slices_of_len(2)
-        # slices_of_4 = get_slices_of_len(4)
+
+        slices_of_2 = get_slices_of_len(2)
+        slices_of_4 = get_slices_of_len(4)
         # slices_of_8 = get_slices_of_len(8)
 
         # test = Bitty(sorted_data)
@@ -258,8 +260,11 @@ if __name__ == "__main__":
         name = path.name
 
         sf = prepare_uint32(buffer)
-        print("first items:", sf.ary.get_array()[:8])
-        huffman_cutoff_scan(sf)
+
+        # parse_from_np_array(sf.ary,32, name)
+
+        # print("first items:", sf.ary.get_array()[:8])
+        # huffman_cutoff_scan(sf)
 
         # prepare_uint32(buffer)
         #

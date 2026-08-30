@@ -368,10 +368,59 @@ class GainCoder:
         strait_rules = Counter(((int(s.abs_pos), int(s.bit)) for s in self.abs_straits))
         print(f"Rules: {len(strait_rules)} unique of {len(self.abs_straits)}")
         print("Top:", ", ".join(f"{p}={b}×{c}" for (p, b), c in strait_rules.most_common(5)))
+        self.analyze_strait_values()
         print("==AbsSplits==")
         if len(self.abs_split_pos):
             build_bins_n_print(self.abs_split_pos, [45, 90, 100])
         return leaf_ext_delta, bins_ext_delta
+
+    def analyze_strait_values(s):
+        if not s.abs_straits or not s.runs:
+            return
+        bit_count = int(s.bit_count)
+        contexts = {}
+        for sd in s.abs_straits:
+            contexts.setdefault((int(sd.abs_pos), int(sd.bit)), []).append(sd.determined)
+
+        hit = {rule: np.zeros(len(s.runs), dtype=bool) for rule in contexts}
+        for i, run in enumerate(s.runs):
+            for op in run:
+                if op.kind == 'strait':
+                    hit[(int(op.abs_pos), int(op.bit))][i] = True
+
+        leaf_values = np.fromiter(s.codes.keys(), dtype=np.uint32, count=len(s.runs))
+        g_and = int(np.bitwise_and.reduce(leaf_values))
+        g_or = int(np.bitwise_or.reduce(leaf_values))
+        global_const = set(p for p in range(bit_count)
+                           if (g_and >> (bit_count - 1 - p)) & 1
+                           or not (g_or >> (bit_count - 1 - p)) & 1)
+
+        print("==StraitValueCommon==")
+        print("Dataset constants:",
+              [(p, int((g_and >> (bit_count - 1 - p)) & 1)) for p in sorted(global_const)])
+        implied = Counter()
+        standalone = 0
+        for (pos, bit), ctxs in sorted(contexts.items(), key=lambda kv: -len(kv[1])):
+            group = leaf_values[hit[(pos, bit)]]
+            and_all = int(np.bitwise_and.reduce(group))
+            or_all = int(np.bitwise_or.reduce(group))
+            common = "".join('1' if (and_all >> (bit_count - 1 - p)) & 1
+                             else '0' if not (or_all >> (bit_count - 1 - p)) & 1
+                             else Char.fill
+                             for p in range(bit_count))
+            assert common[pos] == str(bit), f"rule {pos}={bit} not constant in its own value group"
+            implies = [(p, b) for (p, b) in contexts
+                       if p != pos and p not in global_const and common[p] == str(b)]
+            if implies:
+                implied.update(implies)
+            else:
+                standalone += 1
+            print(f"  {pos}={bit} ×{len(ctxs)} leaves={len(group)} ctx={len(set(ctxs))} "
+                  f"const={bit_count - common.count(Char.fill)} common='{common}' "
+                  f"implies={','.join(f'{p}={b}' for p, b in implies) or '-'}")
+        print(f"Standalone: {standalone} of {len(contexts)} rules")
+        if implied:
+            print("Most implied:", ", ".join(f"{p}={b}×{c}" for (p, b), c in implied.most_common(5)))
 
     def average_bits(self):
         total = sum(self.counts)
@@ -445,7 +494,7 @@ def plot_strait_counts(coder):
     plt.show()
 
 
-def parse_from_np_array(x, bits_to_take):
+def parse_from_np_array(x, bits_to_take, name):
     values, counts = np.unique(x, return_counts=True)
 
     values = values.view()
@@ -463,11 +512,12 @@ def parse_from_np_array(x, bits_to_take):
     ratio_bits = coder.compression_ratio(bits_to_take)
 
     # coder.print()
-    # plot_bit_definition_order(coder)
-    # plot_strait_counts(coder)
+    plot_bit_definition_order(coder)
+    plot_strait_counts(coder)
 
     print(f"{name}: avg_bits={avg_bits:.3f}, compression={ratio_bits:.3f}, {avg_bits - bits_to_take:.3f}")
     print("END")
+    return coder
 
 
 if __name__ == "__main__":
@@ -485,4 +535,4 @@ if __name__ == "__main__":
 
         x = np.frombuffer(buffer, dtype=np.uint32)
 
-        parse_from_np_array(x, bits_to_take)
+        parse_from_np_array(x, bits_to_take, name)

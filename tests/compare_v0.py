@@ -7,9 +7,11 @@ decoupled behind build events and off by default, so the harness also
 attaches a realtime TreePrinter to it (v0 streams its tree during the
 build via PageManager realtime printing; both then print the tree a
 second time through coder.print()). The refactored coder's extra
-`==AbsStraits==`/`==AbsSplits==` stats sections are stripped before the
+`==AbsStraits==`/`==AbsSplits==` stats sections (incl. the
+`==StraitValueCommon==` analysis inside that region) are stripped before the
 diff (they have no baseline counterpart). Sets MPLBACKEND=agg so plotting
-code cannot block the harness.
+code cannot block the harness. Plot calls enabled in main are commented out
+for the parity run only (no baseline counterpart, no png side effects).
 """
 import contextlib
 import io
@@ -40,6 +42,14 @@ NEW_PATCHES = V0_PATCHES + [
     ("coder = GainCoder(values, counts, bits_to_take, display=TreePrinter())",
      "coder = GainCoder(values, counts, bits_to_take, display=TreePrinter(realtime=True))"),
 ]
+
+PLOT_ANCHOR = "    plot_bit_definition_order(coder)\n    plot_strait_counts(coder)"
+if PLOT_ANCHOR in NEW.read_text(encoding="utf-8"):
+    NEW_PATCHES.append((PLOT_ANCHOR, "    pass"))
+
+PARSE_CALL_ANCHOR = "        parse_from_np_array(x, bits_to_take, name)"
+if PARSE_CALL_ANCHOR in NEW.read_text(encoding="utf-8"):
+    NEW_PATCHES.append((PARSE_CALL_ANCHOR, "        coder = parse_from_np_array(x, bits_to_take, name)"))
 
 
 def strip_abs_stats(text: str) -> str:

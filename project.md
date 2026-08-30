@@ -109,6 +109,26 @@ Clara's final design (replaced the agent's gate/trim variant same day):
   columns + 6-column Huffman over just 39 symbols), valley flat c1=5..8.
   The cutoff exists because of the symbol-TABLE cost, not code length.
 
+## Strait value analysis (2026-08-30, `print_stats`)
+
+`coder.analyze_strait_values()` (called from `print_stats`, prints
+`==StraitValueCommon==` inside the `==AbsStraits==` region → auto-stripped
+by `compare_v0`): per unique (abs_pos, bit) rule, the concrete leaf values
+the rule was set for are reconstructed post-hoc from `runs` + `codes`
+(1:1 order — both written in `create_leaf`; no tree re-walk, just
+dict/Counter/bitwise-reduce). Per rule: `×N` occurrences, `leaves=` value
+group size, `ctx=` distinct `StraitDef.determined` contexts, `common=`
+constant-bit mask ('1'/'0' = constant across the group, '.' = varying),
+`implies=` other rules that hold for EVERY value of the group (dataset
+constants = the root strait rules are printed once in the header and
+excluded). Assert: the rule's own bit is constant in its group (validates
+the runs+codes reconstruction). Real data: dataset constants are exactly
+the 6 root rules (1=0, 2=1, 3=1, 17=0, 18=1, 19=1); the frequent rules
+(10=0 ×202 …) share ONLY those + their own bit (const=7, implies=-) and
+fire under 202 distinct path contexts → no hidden value dependency behind
+the top rules. 46/56 rules standalone; most implied: 20=1×6 (20=1 itself
+covers 1999 of 2047 leaves).
+
 ## Tree structure + tests (2026-08-29, round 4)
 
 `coder.tree` is the strait-augmented tree (Clara's sketch): every
@@ -235,10 +255,14 @@ tree, `codes` dict, node tree, avg; 10s vs 3.8s — scan now view-based):
       (Bitty instance, 2026-08-30) — `tests/test_bf16.py` 6/6 again. The
       fix unmasked a ±inf sign swap in `bf16_bitty.py` (`inf_pos` was the
       SIGN==1 group) — fixed same day, all suites green.
-- [ ] `compare_v0.py` currently BLOCKED: `claraenc/GainCoder.py` main reads
-      the bin with `dtype=np.bf` (Clara's committed WIP — no such numpy
-      dtype). Needs uint16 + Bitty like PrepareBf16 before the harness can
-      run again.
+- [x] `compare_v0.py` UNBLOCKED (2026-08-30, main reads uint32 again —
+      Clara's `dtype=np.bf` WIP resolved): stdout/codes/nodes IDENTICAL
+      after two tolerant in-memory patches: plot calls commented out for
+      the parity run (no v0 counterpart, no png side effects) and
+      `coder = parse_from_np_array(...)` (coder was function-local since
+      the parse refactor; `parse_from_np_array` now returns the coder).
+      `==StraitValueCommon==` needs no harness change — it sits inside the
+      stripped `==AbsStraits==`..`==AbsSplits==` region.
 
 Candidate Bitty feature requests / bug reports for Clara (collect while refactoring):
 
