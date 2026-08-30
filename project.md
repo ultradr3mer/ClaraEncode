@@ -92,6 +92,22 @@ Clara's final design (replaced the agent's gate/trim variant same day):
 - `claraenc/entropy.py` stays LOCAL for GainCoder on purpose: its
   LSB-first per-bit ordering is baked into v0 parity (split tie-breaking);
   do NOT migrate GainCoder to the clarautils function.
+- 3-part split / cutoff analysis (2026-08-30): `SortedFlippedAry` carries
+  `means` (per-column BER of the sorted+flipped ary) for outside analysis.
+  `huffman_cutoff_scan(sf) -> list[CutoffScanRow(c1, k, symbols, huff_avg,
+  total, table, total_all, floor)]`: right boundary fixed at the last
+  mean>0 column (the all-zero tail is ignored), sweeps the raw|huffman
+  cutoff c1; middle = contiguous columns [c1, zero_start), one Huffman
+  symbol per item via `np.bincount` -> `claraenc/Huffman.py::HuffmanCoder`
+  (cleaned: scratch main behind `__main__`, numpy instead of torch,
+  clarautils instead of modelCompression imports — torch is NOT in this
+  venv); `table/n` estimated as symbols*(k+4)/n. Real data (n=4096):
+  pure code-length best is c1=0 (10.18 bits/item — the joint 13-bit
+  alphabet is skewed, 1655/8192 symbols, Huffman beats the 11.56 per-bit
+  entropy floor via cross-column correlation), BUT with the table c1=0
+  costs 17.05 (>16!); best with table c1=7 -> 11.15 bits/item (7 raw
+  columns + 6-column Huffman over just 39 symbols), valley flat c1=5..8.
+  The cutoff exists because of the symbol-TABLE cost, not code length.
 
 ## Tree structure + tests (2026-08-29, round 4)
 

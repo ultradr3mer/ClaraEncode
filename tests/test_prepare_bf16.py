@@ -16,7 +16,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np
 
-from claraenc.PrepareBf16 import prepare_uint16, SortedFlippedAry
+from claraenc.Huffman import HuffmanCoder
+from claraenc.PrepareBf16 import prepare_uint16, huffman_cutoff_scan, SortedFlippedAry
 
 
 def prepare(values):
@@ -67,8 +68,30 @@ def test_real_data():
     assert np.array_equal(np.array(sf.get_ary()), x)
 
 
+def test_huffman_coder_known_distribution():
+    # p = [.5 .25 .125 .125] -> code lengths [1 2 3 3] -> avg 1.75
+    coder = HuffmanCoder(np.array([0, 1, 2, 3]), np.array([8, 4, 2, 2]))
+    assert coder.average_bits() == 1.75
+    assert sorted(len(c) for c in coder.codes.values()) == [1, 2, 3, 3]
+
+
+def test_huffman_cutoff_scan():
+    # two .5 columns (pos 14/15), rest zero -> zero_start 2, vals stay [3,3,0,0]
+    sf, x = prepare([3, 3, 0, 0])
+    with contextlib.redirect_stdout(io.StringIO()) as out:
+        rows = huffman_cutoff_scan(sf)
+    assert [(r.c1, r.k) for r in rows] == [(0, 2), (1, 1), (2, 0)]
+    assert rows[0].symbols == 2 and rows[0].huff_avg == 1.0 and rows[0].total == 1.0
+    assert rows[0].table == 3.0 and rows[0].total_all == 4.0
+    assert rows[1].table == 2.5 and rows[1].total_all == 4.5
+    assert rows[2].huff_avg == 0.0 and rows[2].total_all == 2.0
+    assert rows[0].floor == 2.0
+    assert "best: c1=2" in out.getvalue()
+
+
 TESTS = [test_sorted_case, test_defined_one_flips_to_zero,
-         test_all_defined, test_real_data]
+         test_all_defined, test_real_data, test_huffman_coder_known_distribution,
+         test_huffman_cutoff_scan]
 
 if __name__ == "__main__":
     for t in TESTS:

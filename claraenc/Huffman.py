@@ -1,12 +1,10 @@
-import torch
-import numpy as np
-import matplotlib.pyplot as plt
-from pathlib import Path
 import heapq
 import itertools
+from pathlib import Path
 
-from modelCompression.common import get_max_value
-from modelCompression.commonEncoding import get_bitmask
+import numpy as np
+
+from clarautils import get_bitmask
 
 
 class HuffmanCoder:
@@ -46,7 +44,6 @@ class HuffmanCoder:
     def compression_ratio(self, original_bits=16):
         return self.average_bits() / original_bits
 
-base = Path("bins")
 
 def get_bit_count(value: np.unsignedinteger):
     return np.log2(value+1)
@@ -76,6 +73,8 @@ def plot_code_length_histogram(coder, title):
     plt.show()
 
 def plot(c,title):
+    import matplotlib.pyplot as plt
+
     plt.figure()
     plt.hist(c, bins=np.min((c.data_bit_count, 256)))
     plt.title(f"Histogram of counts: {title}")
@@ -84,40 +83,38 @@ def plot(c,title):
 
     plt.show()
 
-bits_to_take = 8
-bits_to_shift = 7
-mask = get_bitmask(bits_to_take)
-num_possible = np.pow(2,bits_to_take)
-for path in base.glob("model.layers.0*.bin"):
-    with open(path, "rb") as f:
-        buffer = f.read()
 
-    tmp = torch.frombuffer(buffer, dtype=torch.uint16).clone()
-    x = ((tmp.to(torch.int32) >> bits_to_shift) & mask)
+if __name__ == "__main__":
+    base = Path("bins")
+    bits_to_take = 8
+    bits_to_shift = 7
+    mask = get_bitmask(bits_to_take)
+    num_possible = np.pow(2,bits_to_take)
+    for path in base.glob("model.layers.0*.bin"):
+        with open(path, "rb") as f:
+            buffer = f.read()
 
-    sparse_counts = torch.bincount(
-        x.to(torch.int64),
-        minlength=num_possible
-    )
+        x = (np.frombuffer(buffer, dtype=np.uint16).astype(np.int32) >> bits_to_shift) & mask
 
-    # mask_valid = sparse_counts > 1
-    # sparse_counts *= mask_valid
+        sparse_counts = np.bincount(
+            x,
+            minlength=num_possible
+        )
 
-    values = torch.nonzero(sparse_counts).squeeze()
-    counts = sparse_counts[values].cpu().numpy()
+        values = np.flatnonzero(sparse_counts)
+        counts = sparse_counts[values]
 
-    # num_possible = np.iinfo(np.uint16).max + 1
-    num_unique =  values.numel()
-    ratio = num_unique / num_possible
+        num_unique = values.size
+        ratio = num_unique / num_possible
 
-    bit_req = get_bit_count(num_unique)
-    print(f"{path.name}: {num_unique}({bit_req:.3f} bits) unique, ratio={ratio:.6f}")
+        bit_req = get_bit_count(num_unique)
+        print(f"{path.name}: {num_unique}({bit_req:.3f} bits) unique, ratio={ratio:.6f}")
 
-    coder = HuffmanCoder(values, counts)
+        coder = HuffmanCoder(values, counts)
 
-    avg_bits = coder.average_bits()
-    ratio_bits = coder.compression_ratio(bits_to_take)
+        avg_bits = coder.average_bits()
+        ratio_bits = coder.compression_ratio(bits_to_take)
 
-    print(f"{path.name}: avg_bits={avg_bits:.3f}, compression={ratio_bits:.3f}, {avg_bits-bits_to_take:.3f}")
+        print(f"{path.name}: avg_bits={avg_bits:.3f}, compression={ratio_bits:.3f}, {avg_bits-bits_to_take:.3f}")
 
-    # plot_code_length_histogram(coder, path.name)
+        # plot_code_length_histogram(coder, path.name)

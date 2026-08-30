@@ -38,6 +38,17 @@ session memory: preferences, quirks, observations, open questions.
 - The fix UNMASKED a ±inf sign swap in `bf16_bitty.py` (`inf_pos` was the
   SIGN==1 = negative group; before, the clamp bug made both writes land on
   empty indices). Fixed — all suites green (bf16 6/6, prepare 4/4, tree 7/7).
+- Cutoff scan (3-part split raw|huffman|zeros): `Huffman.py` cleaned so
+  `HuffmanCoder` is importable (scratch main guarded, torch→numpy — torch is
+  NOT in this venv, modelCompression imports→clarautils).
+  `huffman_cutoff_scan(sf)` + `CutoffScanRow` in PrepareBf16; Clara added the
+  `means` field to SortedFlippedAry for outside analysis. prepare tests 6/6
+  (incl. hand-checked scan case). Real-data answer (n=4096): without table
+  cost c1=0 wins (10.18 bits/item, joint alphabet skewed — Huffman beats the
+  per-bit floor via cross-column correlation); WITH table (symbols*(k+4)/n)
+  c1=0 explodes to 17.05 and the best cutoff is c1≈5..8 (c1=7: 11.15
+  bits/item, 39 symbols). "High entropy columns grow huffman" holds only via
+  the symbol-table cost, not code length.
 - BLOCKED: `compare_v0.py` — GainCoder.py main has `dtype=np.bf`
   (Clara's committed WIP; no such numpy dtype). `test_tree.py` 7/7 still
   green as coder-parity proxy. `claraenc/entropy.py` deliberately NOT

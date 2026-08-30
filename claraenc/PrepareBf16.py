@@ -8,9 +8,10 @@ import sys
 if globals().get("__package__", "") in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from clarautils import Bitty, NBitArray, NBitAryOnly, get_number, arrange_bits, get_type_for_scalar, get_as_unsigned, \
-    CommonNBitSc, CommonNBitAry, get_bitwise_entropy
+from clarautils import Bitty, NBitArray, NBitAryOnly, get_number, arrange_bits, get_bitmask, get_type_for_scalar, \
+    get_as_unsigned, CommonNBitSc, CommonNBitAry, get_bitwise_entropy, get_bits
 
+from claraenc.Huffman import HuffmanCoder
 from claraenc.bf16_bitty import BF16_SEM_SLICES
 
 def get_between_01(vals: np.ndarray) -> np.ndarray:
@@ -31,7 +32,10 @@ class SortedFlippedAry(NamedTuple): # Die Bits sind sortiert, nicht die items
 
     @classmethod
     def flip_data_ary(cls, ary: NBitArray, mask: CommonNBitSc) -> NBitArray:
-        return NBitAryOnly(ary.get_array() ^ mask.value, ary.get_bit_count())
+        bit_count = ary.get_bit_count()
+        ary = ary.get_array()
+        mask = np.full_like(ary, mask.value)
+        return NBitAryOnly((ary ^ mask), bit_count)
 
     @classmethod
     def build_from(cls, ary: NBitArray) -> SortedFlippedAry:
@@ -39,22 +43,38 @@ class SortedFlippedAry(NamedTuple): # Die Bits sind sortiert, nicht die items
         original_means = np.mean(ary.get_bitwise(), axis=0, dtype=np.float32)
         flip_mask: npt.NDArray[np.uint8] = np.round(original_means).astype(np.uint8)
         flip_packed: CommonNBitSc = get_number(flip_mask)
+        if not (flip_mask == get_bits(flip_packed,16)).any():
+            raise Exception("das")
+
 
         flipped_data = cls.flip_data_ary(ary, flip_packed)
         flipped_means = cls.flip_means_ary(original_means, flip_mask)
         print("P(B=1)*9 / Flip / BER*18   (BER = P(bit != most common value)):")
         print(np.array((original_means*9, flip_mask, flipped_means*9*2), dtype=np.uint8))
         print("Flips:", flip_mask, "packed:", flip_packed)
-        sort_idx = np.argsort(-flipped_means, kind='stable')
+        sort_idx = np.argsort(flipped_means, kind='stable')
 
         original_idx = np.arange(bit_count, dtype=get_type_for_scalar(bit_count))
         sorted_data = flipped_data.b[sort_idx]
         actual_bit_idx = original_idx[sort_idx]
 
         sorted_flipped_means = flipped_means[sort_idx]
-        original_means_sorted = np.sort(original_means)[::-1]
+        original_means_sorted = np.sort(original_means)
         print("Sorted desc: P(B=1)*9 / Diff(P1-BER)*9 / BER*9:")
         print(np.array((original_means_sorted*9, (original_means_sorted-sorted_flipped_means)*9, sorted_flipped_means*9), dtype=np.int8))
+
+        o_mean = np.mean(ary)
+        f_mean = np.mean(flipped_data)
+        if o_mean < f_mean:
+            raise Exception("flipping is supposed to reduce the numbersize")
+
+
+        s_mean = np.mean(sorted_data)
+        if f_mean < s_mean:
+            raise Exception("sorting is supposed to reduce the numbersize")
+
+        print("Mean:",o_mean,"flipped:",f_mean,"sorted",s_mean)
+
 
         # def calc_entr(p: np.ndarray):
         #     entropy = np.zeros(bit_count, dtype=np.float32)
@@ -72,6 +92,16 @@ class SortedFlippedAry(NamedTuple): # Die Bits sind sortiert, nicht die items
         # print("Entropy bits (sum H(p), defined bits excluded) before/after/after_inv:",
         #       sum(entropy_avg_bits_before), sum(entropy_avg_bits_after), sum(entropy_avg_bits_after_inv))
 
+        # test = Bitty(sorted_data)
+        for i in range(4,16):
+            bit = (1 << i)
+            i = 16-i
+            slice = sorted_data.b[i:].get_array()
+            slice_orig = ary.b[i:].get_array()
+
+            print("Max:",np.max(slice),"from", np.max(slice_orig),"bit:", bit-1)
+            print("Mean:",np.mean(slice),"from", np.mean(slice_orig),"bit:", (bit-1)/2)
+
         return SortedFlippedAry(actual_bit_idx, flip_packed, sorted_data, sorted_flipped_means)
 
     def get_ary(self) -> NBitArray:
@@ -79,6 +109,59 @@ class SortedFlippedAry(NamedTuple): # Die Bits sind sortiert, nicht die items
         unsorted = self.ary.b[np.argsort(self.bit_key)]
         unfliped = self.flip_data_ary(unsorted, self.flipped_bits)
         return unfliped
+
+
+class CutoffScanRow(NamedTuple):
+    c1: int
+    k: int
+    symbols: int
+    huff_avg: float
+    total: float
+    table: float
+    total_all: float
+    floor: float
+
+
+def huffman_cutoff_scan(sf: SortedFlippedAry) -> list[CutoffScanRow]:
+    """Sweep the raw|huffman cutoff over the BER-sorted columns.
+
+    Right boundary fixed: the middle ends at the last column with mean > 0,
+    the columns after that are all-zero and ignored. For every left
+    boundary c1: columns [0, c1) stay raw (1 bit/item each), the middle
+    [c1, zero_start) is Huffman-coded as one symbol per item.
+    table/n estimates the huffman table as symbols * (k + 4) bits."""
+    vals = sf.ary.get_array()
+    bc = sf.ary.get_bit_count()
+    n = int(vals.size)
+    zero_start = int(np.count_nonzero(sf.means > 0))
+
+    print(f"Huffman cutoff scan: n={n}, {zero_start} non-zero columns, "
+          f"{bc - zero_start} zero columns dropped")
+    print("c1 | k | symbols | huff_avg | total=c1+huff | table/n | +table | vs 16 | floor")
+    rows = []
+    for c1 in range(zero_start + 1):
+        k = zero_start - c1
+        if k == 0:
+            symbols, huff_avg = 0, 0.0
+        else:
+            seg = (vals >> (bc - zero_start)) & get_bitmask(k)
+            counts = np.bincount(seg, minlength=2 ** k)
+            present = np.flatnonzero(counts)
+            symbols = int(present.size)
+            huff_avg = HuffmanCoder(present, counts[present]).average_bits()
+        q = sf.means[c1:zero_start]
+        floor = float(-np.sum(q * np.log2(q) + (1.0 - q) * np.log2(1.0 - q))) if k else 0.0
+        total = c1 + huff_avg
+        table = symbols * (k + 4) / n if k else 0.0
+        rows.append(CutoffScanRow(c1, k, symbols, huff_avg, total,
+                                  table, total + table, floor))
+        print(f"{c1:2d} | {k:2d} | {symbols:5d} | {huff_avg:8.4f} | "
+              f"{total:8.4f} | {table:6.3f} | {total + table:8.4f} | "
+              f"{total + table - 16:+8.4f} | {floor:8.4f}")
+    best = min(rows, key=lambda r: r.total_all)
+    print(f"best: c1={best.c1}, total={best.total:.4f} (+{best.table:.4f} table "
+          f"= {best.total_all:.4f} bits/item), {best.symbols} symbols")
+    return rows
 
 
 
@@ -155,6 +238,7 @@ if __name__ == "__main__":
 
         sf = prepare_uint16(buffer)
         print("first items:", sf.ary.get_array()[:8])
+        huffman_cutoff_scan(sf)
 
         # prepare_uint32(buffer)
         #
