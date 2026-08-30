@@ -444,6 +444,32 @@ def plot_strait_counts(coder):
     fig.savefig("strait_counts.png")
     plt.show()
 
+
+def parse_from_np_array(x, bits_to_take):
+    values, counts = np.unique(x, return_counts=True)
+
+    values = values.view()
+
+    num_possible = np.iinfo(np.uint32).max + 1
+    num_unique = len(values)
+    ratio = num_unique / num_possible
+
+    bit_req = get_bit_count(num_unique)
+    print(f"{name}: {num_unique}({bit_req:.3f} bits) unique, ratio={ratio:.6f}")
+
+    coder = GainCoder(values, counts, bits_to_take, display=TreePrinter())
+
+    avg_bits = coder.average_bits()
+    ratio_bits = coder.compression_ratio(bits_to_take)
+
+    # coder.print()
+    # plot_bit_definition_order(coder)
+    # plot_strait_counts(coder)
+
+    print(f"{name}: avg_bits={avg_bits:.3f}, compression={ratio_bits:.3f}, {avg_bits - bits_to_take:.3f}")
+    print("END")
+
+
 if __name__ == "__main__":
     base = Path("F:\\source\\sandbox314\\modelCompression\\bins")
 
@@ -457,27 +483,6 @@ if __name__ == "__main__":
             buffer = f.read()
         name = path.name
 
-        x = np.frombuffer(buffer, dtype=np.bf)
+        x = np.frombuffer(buffer, dtype=np.uint32)
 
-        values, counts = np.unique(x, return_counts=True)
-
-        values = values.view()
-
-        num_possible = np.iinfo(np.uint32).max + 1
-        num_unique = len(values)
-        ratio = num_unique / num_possible
-
-        bit_req = get_bit_count(num_unique)
-        print(f"{name}: {num_unique}({bit_req:.3f} bits) unique, ratio={ratio:.6f}")
-
-        coder = GainCoder(values, counts, bits_to_take, display=TreePrinter())
-
-        avg_bits = coder.average_bits()
-        ratio_bits = coder.compression_ratio(bits_to_take)
-
-        # coder.print()
-        # plot_bit_definition_order(coder)
-        # plot_strait_counts(coder)
-
-        print(f"{name}: avg_bits={avg_bits:.3f}, compression={ratio_bits:.3f}, {avg_bits - bits_to_take:.3f}")
-        print("END")
+        parse_from_np_array(x, bits_to_take)

@@ -9,7 +9,7 @@ if globals().get("__package__", "") in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from clarautils import Bitty, NBitArray, NBitAryOnly, get_number, arrange_bits, get_bitmask, get_type_for_scalar, \
-    get_as_unsigned, CommonNBitSc, CommonNBitAry, get_bitwise_entropy, get_bits
+    get_as_unsigned, CommonNBitSc, CommonNBitAry, get_bitwise_entropy, get_bits, get_bit_count
 
 from claraenc.Huffman import HuffmanCoder
 from claraenc.bf16_bitty import BF16_SEM_SLICES
@@ -74,6 +74,7 @@ class SortedFlippedAry(NamedTuple): # Die Bits sind sortiert, nicht die items
             raise Exception("sorting is supposed to reduce the numbersize")
 
         print("Mean:",o_mean,"flipped:",f_mean,"sorted",s_mean)
+        print("Bitcount:", get_bit_count(int(o_mean)), "over:", get_bit_count(int(f_mean)), "to", get_bit_count(int(s_mean)))
 
 
         # def calc_entr(p: np.ndarray):
@@ -92,10 +93,18 @@ class SortedFlippedAry(NamedTuple): # Die Bits sind sortiert, nicht die items
         # print("Entropy bits (sum H(p), defined bits excluded) before/after/after_inv:",
         #       sum(entropy_avg_bits_before), sum(entropy_avg_bits_after), sum(entropy_avg_bits_after_inv))
 
+
+        def get_slices_of_len(n: int):
+            return [np.unique(sorted_data.b[r:r+n].read(), return_counts=True) for r in range(0,32,n)]
+        #
+        # slices_of_2 = get_slices_of_len(2)
+        # slices_of_4 = get_slices_of_len(4)
+        # slices_of_8 = get_slices_of_len(8)
+
         # test = Bitty(sorted_data)
-        for i in range(4,16):
+        for i in range(14,bit_count,2):
             bit = (1 << i)
-            i = 16-i
+            i = bit_count-i
             slice = sorted_data.b[i:].get_array()
             slice_orig = ary.b[i:].get_array()
 
@@ -194,6 +203,18 @@ def prepare_uint16(buffer: bytes) -> SortedFlippedAry:
 
     return result
 
+def prepare_uint32(buffer: bytes) -> SortedFlippedAry:
+    bit_count = 32
+    x = np.frombuffer(buffer, dtype=np.uint32)
+    b = Bitty(x, bit_count)
+
+    result = SortedFlippedAry.build_from(b)
+
+    if not (result.get_ary() == x).all():
+        raise Exception("Could not reconstruct the original aray")
+
+    return result
+
     # flipped_b, flip_mask = flip_if_leaning_toward_1(b)
     # keys = np.mean(flipped_b.get_bitwise(), axis=0)
 
@@ -236,7 +257,7 @@ if __name__ == "__main__":
             buffer = f.read()
         name = path.name
 
-        sf = prepare_uint16(buffer)
+        sf = prepare_uint32(buffer)
         print("first items:", sf.ary.get_array()[:8])
         huffman_cutoff_scan(sf)
 
