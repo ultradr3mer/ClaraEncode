@@ -16,6 +16,26 @@ session memory: preferences, quirks, observations, open questions.
 - Bitty feature requests: write them down (candidate list in `project.md`),
   Clara implements them — "it will be done".
 
+## Session state (2026-08-31)
+
+- `claraenc/ReversibleSort.py`: Claras reversible-mergesort design (after
+  two plan rounds): `arg_merge_sort` returns ONLY the record (argsort
+  analogy), bits as flat np.ubyte 0/1 list, layer formula l/2^d × (2^d−1)
+  (last output of each merge forced → dropped, early-exhausted forced
+  tails still stored → uniform layer shape). `apply(List[Any])` (merges
+  never compare → payload can be anything, list in → list out),
+  `get_structured`/`from_structured` (2-D per-layer views where uniform,
+  1-D rows for mixed partial-merge layers), `get_reversed` = instance of
+  the inverse permutation via `arg_merge_sort(to_argsort())`
+  (argsort-of-argsort = inverse, no ties). Plain numpy — no Bitty
+  (flat bitstream, not item×field data; Clara explicitly wanted
+  np.ubyte). `reverse()` module fn = get_reversed().apply().
+  Key mechanics: decisions via `np.searchsorted` (left='left',
+  right='right' → stable left-first ties); replay via boolean masks —
+  placed counts are always n0 ∈ {w−1, w} per merge (one element forced).
+  tests/test_merge_sort.py 7/7 first run; real data n=2048: 2,561 B
+  packed vs 8,192 B int32.
+
 ## Session state (2026-08-30)
 
 - `analyze_strait_values` (Claras Wunsch: was die values, bei denen eine

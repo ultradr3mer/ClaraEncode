@@ -109,6 +109,39 @@ Clara's final design (replaced the agent's gate/trim variant same day):
   columns + 6-column Huffman over just 39 symbols), valley flat c1=5..8.
   The cutoff exists because of the symbol-TABLE cost, not code length.
 
+## Reversible mergesort (2026-08-31, `claraenc/ReversibleSort.py`)
+
+`ReversibleSort.arg_merge_sort(ary)` — np.argsort analog that returns a
+`MergeSortRecord(n, bits)` instead of an index array. Stable bottom-up
+mergesort; per merge `2^d-1` decision bits (0 = left run, 1 = right run;
+last output of each merge is forced → dropped). Clara's layer formula:
+layer d = `l/2^d` merges × `(2^d-1)` bits; schedule deterministic from n
+alone → structure costs nothing. Bits = flat `np.ubyte` (0/1, one byte per
+decision raw; packed 1 bit/decision for the byte win).
+
+- `apply(payload)` replays the permutation on ANY payload (ndarray or
+  plain list — merges never compare, so objects/strings work); input
+  untouched, reordered copy out.
+- `to_argsort()` expands to the classic index array (verification + the
+  thing beaten byte-wise); parity with `np.argsort(kind='stable')` incl.
+  duplicates is tested.
+- `get_reversed()` = record of the inverse permutation (same class), built
+  via `arg_merge_sort(to_argsort())` — argsort(argsort) is the inverse,
+  and a permutation has no ties. `reversed.get_reversed() == original`
+  (bits identical). `reverse(record, ary)` = `get_reversed().apply(ary)`.
+- `get_structured()` → per-layer 2-D `(merges × 2^d-1)` zero-copy views
+  where the layer is uniform (always for power-of-2 n); mixed layers
+  (partial merges, e.g. n=11 layer 2) → list of 1-D rows.
+  `from_structured(structured, n)` rebuilds (validates 0/1 + total count).
+- Totals: power-of-2 n → `n*D − n + 1` bits (D = log2 n). n=4096:
+  45,057 bits = 5,633 B packed vs 16,384 B int32 / 32,768 B int64
+  (2.9×/5.8×); ~4% above log2(n!). Implementation: vectorized per merge
+  via `np.searchsorted` (stable left-first ties), boolean-mask replay.
+- `tests/test_merge_sort.py` 7/7 (edge sizes 0..100, duplicates, payload
+  apply incl. plain lists, involution, structured round-trip + layer
+  shapes, size-vs-argsort, real-data round-trip: n=2048, 2,561 B packed
+  vs 8,192 B int32).
+
 ## Strait value analysis (2026-08-30, `print_stats`)
 
 `coder.analyze_strait_values()` (called from `print_stats`, prints
