@@ -35,6 +35,17 @@ session memory: preferences, quirks, observations, open questions.
   placed counts are always n0 ∈ {w−1, w} per merge (one element forced).
   tests/test_merge_sort.py 7/7 first run; real data n=2048: 2,561 B
   packed vs 8,192 B int32.
+- `claraenc/IndexCoder.py` (Claras frequency re-index scratch, uint16 demo):
+  fixed `to_sort` init — `empty_like` garbage → `np.zeros(int64)`,
+  `iinfo.max` → `max+1` (65536 domain), uint16 dtype → int64 (numpy 2.5
+  raises TypeError on `-uint16` — that killed her run), dead `itertools
+  count` import dropped (shadowed by `count = np.unique(...)`), package
+  bootstrap added for direct runs. Green: sum-check + restore. Sparse
+  option noted for her: numpy has NO sparse array, scipy not in venv —
+  np.unique (values, counts) IS the sparse form (u=1655 for the real
+  uint16 file vs 65536 dense); sorting only the u pairs + searchsorted
+  lookup gives identical ranks with the record at u instead of 65536
+  (983,041 bits full-domain → ~16,501 bits @ u=1655).
 
 ## Session state (2026-08-30)
 

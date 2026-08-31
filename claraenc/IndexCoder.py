@@ -1,8 +1,11 @@
-from itertools import count
 from pathlib import Path
+import sys
 
 import numpy as np
 from clarautils import get_bits
+
+if globals().get("__package__", "") in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from claraenc.ReversibleSort import ReversibleSort
 
@@ -17,7 +20,7 @@ if __name__ == "__main__":
 
         type_to_read = np.uint16
 
-        num_posible = np.iinfo(type_to_read).max
+        num_posible = np.iinfo(type_to_read).max + 1
 
         x = np.frombuffer(buffer, dtype=type_to_read)
 
@@ -25,7 +28,7 @@ if __name__ == "__main__":
 
         count = np.unique(x, return_counts=True)
 
-        to_sort = np.empty_like(x, shape=num_posible)
+        to_sort = np.zeros(num_posible, dtype=np.int64)
         to_sort[count[0]] = count[1]
 
         print(to_sort)
