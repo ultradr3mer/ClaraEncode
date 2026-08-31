@@ -79,6 +79,17 @@ session memory: preferences, quirks, observations, open questions.
   528 bits. 32-item demo total (762) > raw (512) — alphabet dominates at
   tiny u, crossover is fast. Next open step: item-level restore (x →
   slot in unique via searchsorted) not built yet.
+- IndexedAry class round (same day, Clara's structure + ary_hash):
+  hash-check pitfall — `restored` was intp/int64 (to_argsort + floor)
+  vs fitted uint16 original; `(a==b).all()` ignores dtype but
+  tobytes()/blake2b includes the byte WIDTH → normalize with
+  get_as_fitting before hashing. Also fixed: restore() referenced
+  `unique` that only resolved via the __main__ module global
+  (self.unique_count now), and the cumsum-unique[0] offset hit a SECOND
+  time in __main__. Open wart: IndexedAry's dense to_sort domain
+  (max value + 1, here 31,749 slots for 25 real values) bloats the
+  record to 444k bits — u-domain record (~98 bits) is the known fix
+  when she wants it.
 
 ## Session state (2026-08-30)
 
