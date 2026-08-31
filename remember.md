@@ -60,6 +60,14 @@ session memory: preferences, quirks, observations, open questions.
   had the SAME bug — corrected form:
   `re_indexed = rev.get_reversed().to_argsort()[np.searchsorted(values, x)]`
   / `restored = values[rev.to_argsort()[re_indexed]]`.
+- Claras size-print block in IndexCoder (fmt_k_bits/get_type_for_array,
+  both clarautils, work): crash was `rev_sort.bit_count()` — bit_count/
+  nbytes on MergeSortRecord are PROPERTIES (numpy .size-style), not
+  methods. Fixed her calls to property access. Her "ideal scenario"
+  line = sum of per-rank bit_counts (no length prefix) — her metric,
+  kept. Dense record at 32 values: 983,041 bits vs 256-bit payload —
+  the u-record sparse variant (~129 bits @ u=32) is the win she hasn't
+  switched to yet.
 
 ## Session state (2026-08-30)
 

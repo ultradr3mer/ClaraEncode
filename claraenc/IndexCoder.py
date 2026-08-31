@@ -26,7 +26,7 @@ if __name__ == "__main__":
 
         x = x[:32]
 
-        print(f"orignal buffer: {fmt_k_bits(x.size*x.itemsize*8)} format: {len(x)} uint16")
+        print(f"orignal buffer: {fmt_k_bits(x.size*x.itemsize*8)} format: length {len(x)} uint16")
 
         unique, counts = np.unique(x, return_counts=True)
 
@@ -36,20 +36,20 @@ if __name__ == "__main__":
         rev_sort = ReversibleSort.arg_merge_sort(-to_sort)
         arg_sort_reverse = rev_sort.get_reversed().to_argsort()   # value -> rank
 
-        print(f"rev sort: {fmt_k_bits(rev_sort.bit_count())} format: merge sort instruction record")
+        print(f"rev sort: {fmt_k_bits(rev_sort.bit_count)} format: merge sort instruction record")
 
         re_indexed_x = arg_sort_reverse[x]
 
         fit_type = get_type_for_array(re_indexed_x)
-        print(f"re indexed arry: {fmt_k_bits(re_indexed_x.size*fit_type.itemsize*8)} format: {re_indexed_x.size} {fit_type}")
-        print(f" -ideal scenario: {fmt_k_bits(sum([int(i).bit_count() for i in re_indexed_x]))} format: {re_indexed_x.size} variable length array")
-        print(f"total: {fmt_k_bits(rev_sort.bit_count()+re_indexed_x.size*fit_type.itemsize*8)} format: indexcoder record")
+        print(f"re indexed arry: {fmt_k_bits(re_indexed_x.size*fit_type.itemsize*8)} format: length {re_indexed_x.size} {fit_type}")
+        print(f" -ideal scenario: {fmt_k_bits(sum([int(i).bit_count() for i in re_indexed_x]))} format: length {re_indexed_x.size} variable length array")
+        print(f"total: {fmt_k_bits(rev_sort.bit_count+re_indexed_x.size*fit_type.itemsize*8)} format: indexcoder record")
 
         if not np.sum(x) > np.sum(re_indexed_x):
             raise Exception("should create smaller values")
 
         if not np.max(re_indexed_x) < unique.size:
-            raise Exception("reindexing should create max the count of indext values")
+            raise Exception("reindexing should create max the count of indexed values")
 
         arg_sort = rev_sort.to_argsort()                          # rank -> value
 
