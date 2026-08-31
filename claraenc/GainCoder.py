@@ -1,5 +1,5 @@
 from collections import Counter
-from typing import NamedTuple, List
+from typing import NamedTuple, List, Dict
 
 import numpy as np
 from pathlib import Path
@@ -15,6 +15,25 @@ from clarautils import get_bits, get_number, symbol_to_str, get_bitmask, get_ind
 from claraenc.entropy import get_bitwise_entropy
 from claraenc.tree_printer import TreePrinter, Char
 from claraenc.tree_printer import RootBegin, NodeBegin, Strait, NodeSplit, RootSplit, NodeEnd, Leaf
+
+class MultiBitDef(NamedTuple):
+    mask: int
+    bit: int
+    bit_count: int
+
+def get_bits_from_value(value: str):
+    def parse_char(c):
+        if c == '0':
+            return 0
+        elif c == '1':
+            return 1
+        else:
+            return 2
+
+    numeric_rep = np.array([parse_char(c) for c in reversed(value)], np.uint8)
+    range = np.arange(3)
+    mask = np.where(range.reshape((-1, 1)) == numeric_rep)[0]
+    return mask
 
 
 def get_bit_count(value: int):
@@ -44,10 +63,19 @@ class RunOp(NamedTuple):
 
 
 class StraitDef(NamedTuple):
-    abs_pos: int
+    idx: int
     bit: 1 | 0
-    determined: str
+    antecendant: str
 
+    def get_bit_op(self) -> DefineBitOp:
+        return DefineBitOp(self.idx, self.bit)
+
+    def get_num_antecendant(self):
+        return get_bit_count(self.antecendant)
+
+    def __repr__(s):
+
+        return f"if {get_bit_count(s.antecendant)} op:{s.idx}={s.bit}"
 
 class EntropyDiff(NamedTuple):
     entropy_before: np.array
@@ -125,7 +153,6 @@ class StraitNode(NamedTuple):
     op: DefineBitOp
     child: "StraitNode | Node | np.generic"
 
-
 class GainCoder:
     def merge_str(s, a, b):
         iter_b = iter(b)
@@ -137,7 +164,7 @@ class GainCoder:
         self.values = np.array(values)
         self.counts = np.array(counts)
         self.display = display
-        self.abs_straits = []
+        self.abs_straits: List[StraitDef] = []
         self.runs = []
         self.node, self.tree, self.avg_bits, self.codes = self._build()
         self.leaf_ext, self.bins_ext = self.print_stats()
@@ -344,12 +371,12 @@ class GainCoder:
         for run in self.runs:
             for op in run:
                 if op.kind == 'strait':
-                    self.strait_levels[op.abs_pos].append(op.level)
+                    self.strait_levels[op.idx].append(op.level)
                 else:
-                    self.split_levels[op.abs_pos].append(op.level)
+                    self.split_levels[op.idx].append(op.level)
 
-        self.abs_strait_pos = np.array([s.abs_pos for s in self.abs_straits], dtype=np.uint32)
-        self.abs_split_pos = np.array([op.abs_pos for r in self.runs for op in r if op.kind == 'split'],
+        self.abs_strait_pos = np.array([s.idx for s in self.abs_straits], dtype=np.uint32)
+        self.abs_split_pos = np.array([op.idx for r in self.runs for op in r if op.kind == 'split'],
                                       dtype=np.uint32)
 
         return node, tree, np.average(depths), codes
@@ -365,7 +392,7 @@ class GainCoder:
         print("==AbsStraits==")
         if len(self.abs_strait_pos):
             build_bins_n_print(self.abs_strait_pos, [45, 90, 100])
-        strait_rules = Counter(((int(s.abs_pos), int(s.bit)) for s in self.abs_straits))
+        strait_rules = Counter(((int(s.idx), int(s.bit)) for s in self.abs_straits))
         print(f"Rules: {len(strait_rules)} unique of {len(self.abs_straits)}")
         print("Top:", ", ".join(f"{p}={b}×{c}" for (p, b), c in strait_rules.most_common(5)))
         self.analyze_strait_values()
@@ -375,52 +402,57 @@ class GainCoder:
         return leaf_ext_delta, bins_ext_delta
 
     def analyze_strait_values(s):
-        if not s.abs_straits or not s.runs:
-            return
-        bit_count = int(s.bit_count)
-        contexts = {}
+        association_rules: Dict[DefineBitOp,list[str]] = {}
         for sd in s.abs_straits:
-            contexts.setdefault((int(sd.abs_pos), int(sd.bit)), []).append(sd.determined)
-
-        hit = {rule: np.zeros(len(s.runs), dtype=bool) for rule in contexts}
-        for i, run in enumerate(s.runs):
-            for op in run:
-                if op.kind == 'strait':
-                    hit[(int(op.abs_pos), int(op.bit))][i] = True
-
-        leaf_values = np.fromiter(s.codes.keys(), dtype=np.uint32, count=len(s.runs))
-        g_and = int(np.bitwise_and.reduce(leaf_values))
-        g_or = int(np.bitwise_or.reduce(leaf_values))
-        global_const = set(p for p in range(bit_count)
-                           if (g_and >> (bit_count - 1 - p)) & 1
-                           or not (g_or >> (bit_count - 1 - p)) & 1)
-
-        print("==StraitValueCommon==")
-        print("Dataset constants:",
-              [(p, int((g_and >> (bit_count - 1 - p)) & 1)) for p in sorted(global_const)])
-        implied = Counter()
-        standalone = 0
-        for (pos, bit), ctxs in sorted(contexts.items(), key=lambda kv: -len(kv[1])):
-            group = leaf_values[hit[(pos, bit)]]
-            and_all = int(np.bitwise_and.reduce(group))
-            or_all = int(np.bitwise_or.reduce(group))
-            common = "".join('1' if (and_all >> (bit_count - 1 - p)) & 1
-                             else '0' if not (or_all >> (bit_count - 1 - p)) & 1
-                             else Char.fill
-                             for p in range(bit_count))
-            assert common[pos] == str(bit), f"rule {pos}={bit} not constant in its own value group"
-            implies = [(p, b) for (p, b) in contexts
-                       if p != pos and p not in global_const and common[p] == str(b)]
-            if implies:
-                implied.update(implies)
-            else:
-                standalone += 1
-            print(f"  {pos}={bit} ×{len(ctxs)} leaves={len(group)} ctx={len(set(ctxs))} "
-                  f"const={bit_count - common.count(Char.fill)} common='{common}' "
-                  f"implies={','.join(f'{p}={b}' for p, b in implies) or '-'}")
-        print(f"Standalone: {standalone} of {len(contexts)} rules")
-        if implied:
-            print("Most implied:", ", ".join(f"{p}={b}×{c}" for (p, b), c in implied.most_common(5)))
+            # sd.
+            # association_rules
+            pass
+        # if not s.abs_straits or not s.runs:
+        #     return
+        # bit_count = int(s.bit_count)
+        # contexts = {}
+        # for sd in s.abs_straits:
+        #     contexts.setdefault((int(sd.abs_pos), int(sd.bit)), []).append(sd.determined)
+        #
+        # hit = {rule: np.zeros(len(s.runs), dtype=bool) for rule in contexts}
+        # for i, run in enumerate(s.runs):
+        #     for op in run:
+        #         if op.kind == 'strait':
+        #             hit[(int(op.abs_pos), int(op.bit))][i] = True
+        #
+        # leaf_values = np.fromiter(s.codes.keys(), dtype=np.uint32, count=len(s.runs))
+        # g_and = int(np.bitwise_and.reduce(leaf_values))
+        # g_or = int(np.bitwise_or.reduce(leaf_values))
+        # global_const = set(p for p in range(bit_count)
+        #                    if (g_and >> (bit_count - 1 - p)) & 1
+        #                    or not (g_or >> (bit_count - 1 - p)) & 1)
+        #
+        # print("==StraitValueCommon==")
+        # print("Dataset constants:",
+        #       [(p, int((g_and >> (bit_count - 1 - p)) & 1)) for p in sorted(global_const)])
+        # implied = Counter()
+        # standalone = 0
+        # for (pos, bit), ctxs in sorted(contexts.items(), key=lambda kv: -len(kv[1])):
+        #     group = leaf_values[hit[(pos, bit)]]
+        #     and_all = int(np.bitwise_and.reduce(group))
+        #     or_all = int(np.bitwise_or.reduce(group))
+        #     common = "".join('1' if (and_all >> (bit_count - 1 - p)) & 1
+        #                      else '0' if not (or_all >> (bit_count - 1 - p)) & 1
+        #                      else Char.fill
+        #                      for p in range(bit_count))
+        #     assert common[pos] == str(bit), f"rule {pos}={bit} not constant in its own value group"
+        #     implies = [(p, b) for (p, b) in contexts
+        #                if p != pos and p not in global_const and common[p] == str(b)]
+        #     if implies:
+        #         implied.update(implies)
+        #     else:
+        #         standalone += 1
+        #     print(f"  {pos}={bit} ×{len(ctxs)} leaves={len(group)} ctx={len(set(ctxs))} "
+        #           f"const={bit_count - common.count(Char.fill)} common='{common}' "
+        #           f"implies={','.join(f'{p}={b}' for p, b in implies) or '-'}")
+        # print(f"Standalone: {standalone} of {len(contexts)} rules")
+        # if implied:
+        #     print("Most implied:", ", ".join(f"{p}={b}×{c}" for (p, b), c in implied.most_common(5)))
 
     def average_bits(self):
         total = sum(self.counts)
@@ -475,7 +507,7 @@ def plot_strait_counts(coder):
     bit_count = int(coder.bit_count)
     s_counts = np.zeros((2, bit_count), dtype=np.uint32)
     for s in coder.abs_straits:
-        s_counts[s.bit, s.abs_pos] += 1
+        s_counts[s.bit, s.idx] += 1
     print(f"Strait count bins (pos: bit0/bit1): "
           f"{[(p, int(s_counts[0, p]), int(s_counts[1, p])) for p in range(bit_count) if s_counts[:, p].any()]}")
 
@@ -519,7 +551,7 @@ def parse_from_np_array(x, bits_to_take, name):
     print("END")
     return coder
 
-
+print(bits)
 if __name__ == "__main__":
     base = Path("F:\\source\\sandbox314\\modelCompression\\bins")
 

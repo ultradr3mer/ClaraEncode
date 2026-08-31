@@ -141,7 +141,7 @@ positions stay in `RunOp`/`StraitDef`/the `==Abs…==` stats.
 v0-parity tree (degenerate `CommonNBitSc(0, 0)` leaves — value info only
 in `codes`; kept byte-identical for `compare_v0`). Build threading:
 `build_recursive`/`create_node`/`make_root` return `(node, tree)`
-pairs. `abs_pos` = absolute MSB position (0 = MSB). Main is behind
+pairs. `idx` = absolute MSB position (0 = MSB). Main is behind
 `if __name__ == "__main__":` now → module importable. `print_stats`
 guards empty `flag_len`/`abs_strait_pos`/`abs_split_pos` (strait-less
 inputs no longer crash `np.max([])`; real data unaffected).
