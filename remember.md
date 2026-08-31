@@ -67,7 +67,18 @@ session memory: preferences, quirks, observations, open questions.
   line = sum of per-rank bit_counts (no length prefix) — her metric,
   kept. Dense record at 32 values: 983,041 bits vs 256-bit payload —
   the u-record sparse variant (~129 bits @ u=32) is the win she hasn't
-  switched to yet.
+  switched to yet. Gap coder round (same day): Clara re-indexes the
+  np.diff(unique) GAPS instead of values (gaps reoccur → small alphabet).
+  Fixed: raw gap values fed into the slot-indexed rank lookup (same
+  searchsorted hop as before: value → slot → rank), missing `-` on the
+  counts (frequent gap must get rank 0), and my cumsum bug —
+  np.cumsum(diff) gives unique[i]−unique[0]; unique[0] must be prepended
+  BEFORE cumsum (np.diff/np.cumsum asymmetry). Full-file proof:
+  u=1655 → only 33 distinct gaps; uniques as gaps = 13,937 bits (1.7 KB)
+  vs 26,480 bits raw uint16; record 161 bits, ranks uint8, alphabet
+  528 bits. 32-item demo total (762) > raw (512) — alphabet dominates at
+  tiny u, crossover is fast. Next open step: item-level restore (x →
+  slot in unique via searchsorted) not built yet.
 
 ## Session state (2026-08-30)
 

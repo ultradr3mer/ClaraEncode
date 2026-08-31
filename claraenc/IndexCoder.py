@@ -42,15 +42,30 @@ if __name__ == "__main__":
         index_diff = np.diff(unique)
         index_diff_unique, index_diff_counts = np.unique(index_diff, return_counts=True)
 
-        index_diff_sort = ReversibleSort.arg_merge_sort(index_diff_counts)
+        index_diff_sort = ReversibleSort.arg_merge_sort(-index_diff_counts)
         index_diff_index_reverse = index_diff_sort.get_reversed().to_argsort()
-        re_index_diff_index = index_diff_index_reverse[index_diff]
+        gap_slots = np.searchsorted(index_diff_unique, index_diff)   # gap value -> slot
+        re_index_diff_index = index_diff_index_reverse[gap_slots]     # slot -> rank
 
         print(f"index_diff_sort: {fmt_k_bits(index_diff_sort.bit_count)} format: merge sort instruction record")
 
-        print_arry(get_as_fitting(re_index_diff_index), "re_index_diff_x")
+        fitted_ranks = get_as_fitting(re_index_diff_index)
+        print_arry(fitted_ranks, "re_index_diff_index")
 
-        if not (index_diff_unique[index_diff_sort.to_argsort()[re_index_diff_index]] == index_diff).all():
+        gap_alphabet = index_diff_unique[index_diff_sort.to_argsort()]   # gaps in rank order
+        fitted_alphabet = get_as_fitting(gap_alphabet)
+        print_arry(fitted_alphabet, "index_diff_alphabet")
+
+        rank_bits = fitted_ranks.size * fitted_ranks.itemsize * 8
+        alphabet_bits = fitted_alphabet.size * fitted_alphabet.itemsize * 8
+        print(f"total: {fmt_k_bits(index_diff_sort.bit_count + rank_bits + alphabet_bits + x.itemsize * 8)}"
+              f" format: indexcoder record")
+
+        # rank -> gap value, cumsum rebuilds the sorted uniques
+        restored_diff = gap_alphabet[re_index_diff_index]
+        restored_unique = np.cumsum(np.concatenate((unique[:1], restored_diff)))
+
+        if not (restored_unique == unique).all():
             raise Exception("restore failed")
 
         #
