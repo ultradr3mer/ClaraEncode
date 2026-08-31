@@ -46,6 +46,20 @@ session memory: preferences, quirks, observations, open questions.
   uint16 file vs 65536 dense); sorting only the u pairs + searchsorted
   lookup gives identical ranks with the record at u instead of 65536
   (983,041 bits full-domain → ~16,501 bits @ u=1655).
+- DIRECTION PITFALL (hit in IndexCoder, fixed 2026-08-31): `to_argsort()`
+  = np.argsort semantics — σ[k] = value AT rank k (rank→value), NOT the
+  rank of value k. Encode value→rank needs the INVERSE:
+  `get_reversed().to_argsort()`; decode rank→value is the forward
+  `to_argsort()`. Using the forward direction for encode mapped every
+  value to "value at rank v" ≈ v − u (absent count-0 values fill the
+  tail ranks in ascending order) → re_indexed ≈ x, big values — while
+  BOTH her checks stayed green (round-trip is direction-blind:
+  σ⁻¹∘σ = id; sum check passed because x−ε < x). Only Clara's
+  "expected 0..31" caught it — added `max(re_indexed) < u` check.
+  My earlier sparse snippet (`ranks[slots]` with ranks = to_argsort())
+  had the SAME bug — corrected form:
+  `re_indexed = rev.get_reversed().to_argsort()[np.searchsorted(values, x)]`
+  / `restored = values[rev.to_argsort()[re_indexed]]`.
 
 ## Session state (2026-08-30)
 
