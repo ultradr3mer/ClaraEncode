@@ -3,6 +3,10 @@ import sys
 
 import numpy as np
 from clarautils import get_bits, fmt_k_bits, get_type_for_array, get_as_fitting
+import hashlib
+
+def ary_hash(a) -> str:
+    return hashlib.blake2b(a.tobytes(), digest_size=16).hexdigest()
 
 if globals().get("__package__", "") in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -15,6 +19,62 @@ def print_arry(arr, name):
     print(
         f" -ideal scenario: {fmt_k_bits(sum([int(i).bit_count() for i in arr]))} format: length {arr.size} variable length array")
 
+class IndexedAry:
+    def __init__(self, x):
+        x = get_as_fitting(x)
+        print(f"orignal buffer: {fmt_k_bits(x.size*x.itemsize*8)} format: length {len(x)} uint16")
+
+        self.hash = ary_hash(x)
+        self.x_original = x
+
+        self.floor = np.min(x)
+
+        x = x - self.floor
+
+        unique, counts = np.unique(x, return_counts=True)
+
+        to_sort = np.zeros(unique[-1]+1, dtype=np.int64)
+        to_sort[unique] = counts
+
+        rev_sort = ReversibleSort.arg_merge_sort(-to_sort)
+        arg_sort_reverse = rev_sort.get_reversed().to_argsort()   # value -> rank
+
+        print(f"rev sort: {fmt_k_bits(rev_sort.bit_count)} format: merge sort instruction record")
+
+        re_indexed_x = arg_sort_reverse[x]
+
+        re_indexed_x = get_as_fitting(re_indexed_x)
+        print(f"re indexed arry: {fmt_k_bits(re_indexed_x.size*re_indexed_x.itemsize*8)} format: length {re_indexed_x.size} {re_indexed_x.dtype}")
+        print(f" -ideal scenario: {fmt_k_bits(sum([int(i).bit_count() for i in re_indexed_x]))} format: length {re_indexed_x.size} variable length array")
+        print(f"total: {fmt_k_bits(rev_sort.bit_count+re_indexed_x.size*re_indexed_x.itemsize*8)} format: indexcoder record")
+
+        self.re_indexed_x = re_indexed_x
+        self.rev_sort = rev_sort
+
+    def restore(self):
+        x = self.x_original
+        re_indexed_x = self.re_indexed_x
+        rev_sort = self.rev_sort
+        if not np.sum(x) > np.sum(re_indexed_x):
+            raise Exception("should create smaller values")
+
+        if not np.max(re_indexed_x) < unique.size:
+            raise Exception("reindexing should create max the count of indexed values")
+
+        arg_sort = rev_sort.to_argsort()                          # rank -> value
+
+        restored = arg_sort[re_indexed_x] + self.floor
+
+        if not (x == restored).all():
+            raise Exception("restore failed")
+
+        if not self.hash == ary_hash(restored):
+            raise Exception("restore failed")
+
+        return restored
+
+
+
 if __name__ == "__main__":
     base = Path("F:\\source\\sandbox314\\modelCompression\\bins")
 
@@ -26,74 +86,17 @@ if __name__ == "__main__":
 
         type_to_read = np.uint16
 
-        num_posible = np.iinfo(type_to_read).max + 1
-
         x = np.frombuffer(buffer, dtype=type_to_read)
 
         x = x[:32]
 
-        print(f"orignal buffer: {fmt_k_bits(x.size*x.itemsize*8)} format: length {len(x)} uint16")
-
         unique, counts = np.unique(x, return_counts=True)
+        unique_diff = np.diff(unique)
+        indexed_diff = IndexedAry(unique_diff)
 
-        to_sort = np.zeros(num_posible, dtype=np.int64)
-        to_sort[unique] = counts
+        restored_unique = np.cumsum(indexed_diff.restore())
 
-        index_diff = np.diff(unique)
-        index_diff_unique, index_diff_counts = np.unique(index_diff, return_counts=True)
+        if not (unique == restored_unique).all():
+            raise Exception("restore unique failed")
 
-        index_diff_sort = ReversibleSort.arg_merge_sort(-index_diff_counts)
-        index_diff_index_reverse = index_diff_sort.get_reversed().to_argsort()
-        gap_slots = np.searchsorted(index_diff_unique, index_diff)   # gap value -> slot
-        re_index_diff_index = index_diff_index_reverse[gap_slots]     # slot -> rank
 
-        print(f"index_diff_sort: {fmt_k_bits(index_diff_sort.bit_count)} format: merge sort instruction record")
-
-        fitted_ranks = get_as_fitting(re_index_diff_index)
-        print_arry(fitted_ranks, "re_index_diff_index")
-
-        gap_alphabet = index_diff_unique[index_diff_sort.to_argsort()]   # gaps in rank order
-        fitted_alphabet = get_as_fitting(gap_alphabet)
-        print_arry(fitted_alphabet, "index_diff_alphabet")
-
-        rank_bits = fitted_ranks.size * fitted_ranks.itemsize * 8
-        alphabet_bits = fitted_alphabet.size * fitted_alphabet.itemsize * 8
-        print(f"total: {fmt_k_bits(index_diff_sort.bit_count + rank_bits + alphabet_bits + x.itemsize * 8)}"
-              f" format: indexcoder record")
-
-        # rank -> gap value, cumsum rebuilds the sorted uniques
-        restored_diff = gap_alphabet[re_index_diff_index]
-        restored_unique = np.cumsum(np.concatenate((unique[:1], restored_diff)))
-
-        if not (restored_unique == unique).all():
-            raise Exception("restore failed")
-
-        #
-        # arg_sort = index_diff_sort.to_argsort()                          # rank -> value
-        # restored = arg_sort[re_index_diff_index]
-        #
-        # rev_sort = ReversibleSort.arg_merge_sort(-to_sort)
-        # arg_sort_reverse = rev_sort.get_reversed().to_argsort()   # value -> rank
-        #
-        # print(f"rev sort: {fmt_k_bits(rev_sort.bit_count)} format: merge sort instruction record")
-        #
-        # re_indexed_x = arg_sort_reverse[x]
-        #
-        # print_arry(get_as_fitting(re_indexed_x), "re_indexed_x")
-        #
-        # print(f"total: {fmt_k_bits(rev_sort.bit_count+re_indexed_x.size*fit_type.itemsize*8)} format: indexcoder record")
-        #
-        # if not np.sum(x) > np.sum(re_indexed_x):
-        #     raise Exception("should create smaller values")
-        #
-        # if not np.max(re_indexed_x) < unique.size:
-        #     raise Exception("reindexing should create max the count of indexed values")
-        #
-        # arg_sort = rev_sort.to_argsort()                          # rank -> value
-        #
-        # restored = arg_sort[re_indexed_x]
-        #
-        # if not (x == restored).all():
-        #     raise Exception("restore failed")
-        #
-        # print(rev_sort)
