@@ -3,6 +3,8 @@ from pathlib import Path
 import numpy as np
 from clarautils import get_bits
 
+from tests.exampe_data import hermes_weights_data
+
 
 def transformationsmatrix(x, y):
     """
@@ -26,16 +28,16 @@ def transformationsmatrix(x, y):
 
 
 if __name__ == "__main__":
-    base = Path("F:\\source\\sandbox314\\modelCompression\\bins")
+    data = hermes_weights_data
 
-    for path in base.glob("model.layers.0.input_layernorm.weight.bin"):
-        with open(path, "rb") as f:
-            buffer = f.read()
-        name = path.name
+    bits = get_bits(data)
+    vector = np.array(bits, dtype=float) * 2 - 1
 
-        x = np.frombuffer(buffer, dtype=np.uint32)
-
-        x = x[:32]
-
-        for i in x:
-            print(f"{i},")
+    print(vector)
+    # [[-1. -1.  1. ... -1.  1. -1.]
+    #  [-1. -1.  1. ...  1.  1.  1.]
+    #  [-1. -1.  1. ... -1. -1. -1.]
+    #  ...
+    #  [-1. -1.  1. ... -1.  1. -1.]
+    #  [ 1. -1.  1. ... -1. -1. -1.]
+    #  [ 1. -1.  1. ... -1. -1.  1.]]
