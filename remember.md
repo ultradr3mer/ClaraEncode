@@ -16,6 +16,43 @@ session memory: preferences, quirks, observations, open questions.
 - Bitty feature requests: write them down (candidate list in `project.md`),
   Clara implements them — "it will be done".
 
+## Session state (2026-09-01)
+
+- `claraenc/ProbCoder.py` (Claras Idee: Bit-Wahrscheinlichkeiten aus
+  wenigen definierten Bits): lineares Modell im ±1-Raum = Regression auf
+  zentrierte Daten — `initial_p` IST der Interzept. Claras Plan-Runden-
+  Entscheidungen: EINE globale Einfluss-Matrix W (statt Refit pro
+  definiertem Satz), Training auf hermes_weights_data (32 Werte),
+  Greedy-Bit-Auswahl IN Scope, `transformationsmatrix` (Rank-1-Outer)
+  ersetzt durch `fit_w` (per Zielspalte lstsq über alle ANDEREN Spalten;
+  Sub-1e-12-lstsq-Rauschen → exakt 0, konstante Bits haben exakt 0
+  Einfluss). `ProbModel(data, eps=1e-4)`: `predict('10110_0100')`
+  (Muster left-aligned, Index = MSB-Position, '_'/'.': undefiniert),
+  `prob_matrix/total_bits` (Score: |S|·n Rohbits + Kreuzentropie der
+  undefinierten Bits), `empirical_probs` (exakte konditionale Referenz:
+  Gruppieren nach S-Muster), `greedy_select` (Vorwärtsauswahl, Stopp bei
+  Δ≤0), `loo_bits` (Leave-one-out mit Refit pro Fold — ehrlicher Wert).
+  `tests/test_prob.py` 11/11, inkl. hand-gerechneter 3-Bit-Fall.
+- SCORING-BUG (gefunden beim ersten Lauf): anfangs −log2(p) für JEDEN
+  Bit berechnet, egal ob Wert 0 oder 1 — 0-Bits kosten aber −log2(1−p)!
+  Symptom: Greedy "gewann" 393 Bits durch Definieren KONSTANTER Bits
+  (17, 1: p=0 → eps-geclippt → 13.3 Bits/Item Strafe im Score, die
+  Definieren "spart"). Korrekt: `−(b·log2(p) + (1−b)·log2(1−p))`.
+  Danach: konstante Bits kosten ~0, Greedy wählt nur informative.
+- Realdaten-Zahlen (n=32, hermes): independent 22.04, linear W 21.99,
+  empirical 21.38, LOO linear 24.65 bits/Item. Bei n≈bit_count (32
+  Prädiktoren auf 32 Items) ist W multivariat verdünnt + überfit —
+  LOO SCHLECHTER als independent. Empirical zeigt: auf Bit 10 allein
+  zu konditionieren ist ~21 Bits wert, die lineare W kaum einfängt
+  (Omitted-Variable-Bias der globalen Matrix, Claras bewusster
+  Tradeoff). Beweis für Wechsel zu Refit-pro-Satz (Option A aus der
+  Planung), wenn Korrektheit vor Kosten geht; API dafür wäre
+  fit_w(xc[:, S]) statt W[S]-Summe.
+- UNBEFASST von dieser Runde (pre-existing rot): test_prepare_bf16
+  3 FAILED, test_bf16 Collection-Error (`No module named 'backup'` —
+  die bf16-Scratch-Dateien wurden nach `bf16/` verschoben,
+  git: `AD bf16/bf16_*.py`). Nicht angefasst, Clara fragen ob gewollt.
+
 ## Session state (2026-08-31)
 
 - `claraenc/ReversibleSort.py`: Claras reversible-mergesort design (after
