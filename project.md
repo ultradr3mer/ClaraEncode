@@ -109,6 +109,20 @@ Clara's final design (replaced the agent's gate/trim variant same day):
   columns + 6-column Huffman over just 39 symbols), valley flat c1=5..8.
   The cutoff exists because of the symbol-TABLE cost, not code length.
 
+## DiffArray (2026-09-01, `claraenc/IndexCoder.py`)
+
+`DiffArray(arr)` — gaps-between-sorted-uniques coder (NOT raw-order diffs —
+sorting first is what makes the deltas small): `unique, value_index =
+np.unique(arr, return_inverse=True)`; `step = np.diff(unique, prepend=0)`
+(gap 0 → first unique value is coded in full); then the gap array is itself
+deduplicated: `diffs, index = np.unique(step, return_inverse=True)`.
+`restore()` = `unique = np.cumsum(diffs[index])` then
+`unique[value_index]` (the element→unique mapping is what restores the
+original order — required for unsorted input). Unsigned dtypes wrap on the
+diff (mod 2^k) but cumsum undoes it exactly. Tests: `tests/test_diffindex.py`
+(pytest — fixture `hermes_weights` in `tests/exampe_data.py`, registered
+via `tests/conftest.py`; uint32 — the values exceed uint16).
+
 ## Reversible mergesort (2026-08-31, `claraenc/ReversibleSort.py`)
 
 `ReversibleSort.arg_merge_sort(ary)` — np.argsort analog that returns a

@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-hermes_weights=np.array([1044528450,
+hermes_weights_data=np.array([1044528450,
                                 1016020695,
                                 1018117856,
                                 1003763895,
@@ -33,8 +33,8 @@ hermes_weights=np.array([1044528450,
                                 1021590806,
                                 1041185986,
                                 3088725648,
-                                3150069521],dtypes=np.uint16)
+                                3150069521],dtype=np.uint32)
 
 @pytest.fixture
 def hermes_weights():
-    return hermes_weights
+    return hermes_weights_data

@@ -551,7 +551,6 @@ def parse_from_np_array(x, bits_to_take, name):
     print("END")
     return coder
 
-print(bits)
 if __name__ == "__main__":
     base = Path("F:\\source\\sandbox314\\modelCompression\\bins")
 
