@@ -89,7 +89,14 @@ session memory: preferences, quirks, observations, open questions.
   time in __main__. Open wart: IndexedAry's dense to_sort domain
   (max value + 1, here 31,749 slots for 25 real values) bloats the
   record to 444k bits — u-domain record (~98 bits) is the known fix
-  when she wants it.
+  when she wants it. Clara's insight on the trade: the DENSE record
+  carries the alphabet itself (rank->value via to_argsort, no unique
+  table needed) — that's exactly its price: range x log2(range) vs
+  u x (width + log2 u). Rule: sparse value set -> u-domain; contiguous
+  set (u ~ range) -> dense wins (skips the alphabet). The
+  diff/cumsum-floor trap hit a THIRD time: prepend unique[0] AND adding
+  floor again double-counts — decoder form is floor + cumsum(concat(0,
+  diffs)); fixed in __main__ with floor_unique + zero-prepend.
 
 ## Session state (2026-08-30)
 

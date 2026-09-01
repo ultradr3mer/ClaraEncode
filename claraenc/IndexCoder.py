@@ -81,6 +81,17 @@ class IndexedAry:
 
         return restored
 
+class DiffArray:
+    def __init__(self, arr):
+        unique, index, counts = np.unique(arr, return_index=True, return_counts=True)
+        self.diffs = np.diff(unique, prepend=0)
+        self.index = index
+
+    def restore(self):
+        unique = np.cumsum(self.diffs)
+        arr = unique[self.index]
+        return arr
+
 
 if __name__ == "__main__":
     base = Path("F:\\source\\sandbox314\\modelCompression\\bins")
@@ -96,11 +107,9 @@ if __name__ == "__main__":
 
         x = x[:32]
 
-        unique, counts = np.unique(x, return_counts=True)
-        unique_diff = np.diff(unique)
-        indexed_diff = IndexedAry(unique_diff)
+        d = DiffArray(x)
 
-        restored_unique = np.cumsum(np.concatenate((unique[:1], indexed_diff.restore())))
+        restored_x = d.restore()
 
-        if not (unique == restored_unique).all():
+        if not (x == restored_x).all():
             raise Exception("restore unique failed")
