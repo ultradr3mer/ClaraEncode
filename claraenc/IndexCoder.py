@@ -83,13 +83,12 @@ class IndexedAry:
 
 class DiffArray:
     def __init__(self, arr):
-        unique, self.value_index = np.unique(arr, return_inverse=True)
-        step = np.diff(unique, prepend=0)
-        self.diffs, self.index = np.unique(step, return_inverse=True)
+        unique, self.index = np.unique(arr, return_inverse=True)
+        self.diffs = np.diff(unique, prepend=0)
 
     def restore(self):
-        unique = np.cumsum(self.diffs[self.index])
-        return unique[self.value_index]
+        unique = np.cumsum(self.diffs)
+        return unique[self.index]
 
 
 if __name__ == "__main__":
