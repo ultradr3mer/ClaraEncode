@@ -44,3 +44,22 @@ if __name__ == "__main__":
 
     initial_p = np.mean(bits, axis=0)
     print(initial_p)
+
+    j = 10
+    others = list(i for i in range(32) if i != j)
+
+    x = vector[:, others]
+    y = vector[:, j]
+    w = np.linalg.lstsq(x, y, rcond=None)[0]
+    print("w:")
+    print(w)
+
+    approx = j * w
+    print("y:")
+    print(y)
+    print("approx:")
+    print(approx)
+    print("err:")
+    print((y - approx))
+
+
