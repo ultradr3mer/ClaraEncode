@@ -111,21 +111,7 @@ Clara's final design (replaced the agent's gate/trim variant same day):
 
 ## ProbCoder (2026-09-01, `claraenc/ProbCoder.py`)
 
-Conditional bit probabilities from a **global influence matrix W**:
-`p_j(x_S) = clip((1 + mu_j + Σ_{i∈S} W[i,j]·x_i)/2, eps, 1−eps)` in ±1
-space (`initial_p` = intercept = `bits.mean(0)`). W (bits×bits, diagonal
-0) per target column via `np.linalg.lstsq` over all other centered
-columns; constant bits → exactly 0 influence (sub-1e-12 noise zeroed).
-`ProbModel(data, eps=1e-4)`: `predict(pattern)` ('0'/'1' defined,
-'_'/'.' free, left-aligned MSB-first, short patterns ok),
-`total_bits(S)` = |S|·n raw + cross-entropy `−(b·log2(p)+(1−b)·log2(1−p))`
-of undefined bits, `empirical_probs(S)` = exact conditional reference
-(group by S-pattern), `greedy_select()` forward selection stopping at
-Δ≤0, `loo_bits(S)` = leave-one-out with per-fold refit (honest cost).
-Hermes (n=32): independent 22.04 / linear 21.99 / empirical 21.38 /
-LOO 24.65 bits/item — global W barely beats independent at
-n≈bit_count; per-defined-set lstsq is the known upgrade path.
-Tests: `tests/test_prob.py` 11/11 (hand-computed 3-bit case incl.).
+#TODO
 
 ## DiffArray (2026-09-01, `claraenc/IndexCoder.py`)
 

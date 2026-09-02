@@ -18,6 +18,46 @@ session memory: preferences, quirks, observations, open questions.
 
 ## Session state (2026-09-01)
 
+- Maskierte-Form-Runde (Clara: "m = global mean, m + (x * d * w) = y";
+  lehnte Refit-pro-Satz ab — zu viel Daten. One matrix, any mask):
+  `predict_masked(x, defined, w)` = `(x*d)@w` als Modul-Funktion, alle
+  predict-Pfade laufen jetzt darüber. CENTERING-BUG gefixt:
+  prob_matrix/predict_idx multiplizierten UNZENTRIERTE x mit den auf
+  zentrierten Spalten gefitteten W — Vorhersage muss (x−mu) sein
+  (Term −W[i,j]·mu_i fehlte; sichtbar bei Bits mit p weit weg von 0.5).
+  Neue fit-Variante `fit='single'`: W[i,j] = cov(i,j)/var(i) ("Bit i
+  ALLEIN definiert") — für |S|=1 EXAKT der empirische konditionale
+  Mittelwert (2-Punkte-Gerade), kollineare Mehrfach-Definitionen
+  werden doppelt gezählt; `fit='full'` = multivariat (verdünnt unter
+  Few-Bit-Masken, kann Vorzeichen drehen). `print_cost`-Methode,
+  __main__ demoed BEIDE fits. tests/test_prob.py 18/18 (neu:
+  Zentrierungs-Fall, single-exactness 6/7-Fall, identical-predictors
+  full-vs-single, predict_masked unit).
+- ENTSCHEIDENDER LOO-Blit-Befund (n=32, hermes): fit=single Greedy
+  wählt 8 Bits (S=[5,28,15,9,24,27,30,29]) mit scheinbar tollen
+  in-sample 18.16 bits/Item — aber LOO 29.33 > independent 22.04
+  (reiner Overfit), und die Evaluate-Tabelle entlarvt das Muster:
+  2^8 Gruppen à 1 Item → "empirical" error 0.000 / 8.00 bits/Item =
+  Memorierungs-Artefakt. LOO-Sweep über ALLE Einzelbits: KEIN Bit
+  überlebt LOO (gain > 0.5) in BEIDEN fits. Fazit: 32 Items tragen
+  gar kein konditionales Signal — Realdaten-Datei (2048 Items) ist
+  der nächste Schritt (dort konvergieren in-sample/LOO), oder
+  LOO-getriebene Greedy. Clara hatte hermes explizit gewählt — ihr
+  Vorschlag machen, nicht stillschweigend wechseln.
+- Evaluations-Runde (gleicher Tag, Claras Frage "wie schlägt sich
+  f(S=1) gegen mean(data where s=1), error rate?"): neue Methode
+  `print_evaluation(S)` (in __main__): pro S-Muster lin-vs-emp
+  Zeilen + Hard-Decision-Fehlerraten (p>0.5). Befund für S=[10]:
+  lineare Branch-Werte im Mittel nah an den empirischen
+  Gruppen-Mitteln (MAD ~0.05), aber wo es zählt UNTERSCHIESST die
+  lineare Verschiebung um ~die Hälfte (Bit 0: emp 0.24/0.07, lin
+  0.11/0.20) und kann das VORZEICHEN drehen (Bit 23: emp 0.35/0.13,
+  lin 0.22/0.28) — W[10,j] ist der Effekt von Bit 10 BEI allen 31
+  anderen Bits festgehalten (multivariate Verdünnung, n=32≈Spalten).
+  Fehlerraten (undefinierte Bits): independent 0.287, linear 0.289
+  (=kein Gewinn), empirical 0.263 (in-sample, optimistisch);
+  varying-only 0.371/0.374/0.340. Noch mehr Beweis für
+  Refit-pro-Satz. Smoke-Test ergänzt, 12/12.
 - `claraenc/ProbCoder.py` (Claras Idee: Bit-Wahrscheinlichkeiten aus
   wenigen definierten Bits): lineares Modell im ±1-Raum = Regression auf
   zentrierte Daten — `initial_p` IST der Interzept. Claras Plan-Runden-
@@ -32,7 +72,8 @@ session memory: preferences, quirks, observations, open questions.
   undefinierten Bits), `empirical_probs` (exakte konditionale Referenz:
   Gruppieren nach S-Muster), `greedy_select` (Vorwärtsauswahl, Stopp bei
   Δ≤0), `loo_bits` (Leave-one-out mit Refit pro Fold — ehrlicher Wert).
-  `tests/test_prob.py` 11/11, inkl. hand-gerechneter 3-Bit-Fall.
+  `tests/test_prob.py` 12/12 (inkl. hand-gerechneter 3-Bit-Fall;
+  +1 Evaluations-Smoke-Test in der späteren Evaluations-Runde).
 - SCORING-BUG (gefunden beim ersten Lauf): anfangs −log2(p) für JEDEN
   Bit berechnet, egal ob Wert 0 oder 1 — 0-Bits kosten aber −log2(1−p)!
   Symptom: Greedy "gewann" 393 Bits durch Definieren KONSTANTER Bits
