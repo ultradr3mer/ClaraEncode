@@ -1,4 +1,5 @@
 from pathlib import Path
+from turtledemo.penrose import star, start
 
 import numpy as np
 from clarautils import get_bits
@@ -67,7 +68,7 @@ if __name__ == "__main__":
 
     w_power = np.mean(np.abs(w), axis=0)
     w_max = np.argsort(-w_power)
-    w_max_n = w_max[:16]
+    w_max_n = w_max[:24]
 
     x = np.zeros_like(vector)
     x[:, :] = vector[:, :]
@@ -78,7 +79,7 @@ if __name__ == "__main__":
     print("approx:")
     print(approx)
     print("err:")
-    approx_bits = np.where((approx[:,::2]+approx[:,1::2])>0.5,0,1)
+    approx_bits = np.where((approx[:,0::2]+approx[:,1::2])>0.5,1,0)
     err = np.abs(approx_bits - bits)
     print(err)
     print(f"total: {np.sum(err)}/{err.size}")
