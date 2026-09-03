@@ -70,7 +70,7 @@ if __name__ == "__main__":
     w_max_n = w_max[:16]
 
     x = np.zeros_like(vector)
-    x[:, 16:24] = vector[:, 16:24]
+    x[:, :] = vector[:, :]
     y = bits
     approx = x @ w
     print("y:")
@@ -78,9 +78,8 @@ if __name__ == "__main__":
     print("approx:")
     print(approx)
     print("err:")
-    def sign_to_bit(y):
-        return np.where(y > 0, 1, 0)
-    err = np.abs(sign_to_bit(approx) - sign_to_bit(vector))
+    approx_bits = np.where((approx[:,::2]+approx[:,1::2])>0.5,0,1)
+    err = np.abs(approx_bits - bits)
     print(err)
     print(f"total: {np.sum(err)}/{err.size}")
 
