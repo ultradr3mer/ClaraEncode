@@ -6,7 +6,8 @@ from math import comb
 
 import numpy as np
 import numpy.typing as npt
-from clarautils import get_bits, Bitty, get_type_for_bit_count, get_as_unsigned, symbol_to_str
+from clarautils import get_bits, Bitty, get_type_for_bit_count, get_as_unsigned, symbol_to_str, CommonNBitSc
+from clarautils.commonEncoding import get_bit_flags, normalize_flags
 
 
 def transformationsmatrix(x, y):
@@ -117,39 +118,56 @@ def bits_rank_first(bit_count, min_r=0, max_r=None)->List[int]:
 class RankedBit(NamedTuple):
     bit_mask: int
     value: int
+    bit_count: int
 
     def expand(self) -> Tuple[int,npt.ArrayLike,npt.ArrayLike]:
-        mask_bit: np.ndarray = get_bits(self.bit_mask)
-        value_bit: np.ndarray = get_bits(self.value)
-        rank = np.sum(value_bit)
+        mask_bit: np.ndarray = get_bit_flags(self.bit_mask)
+        value_bit: np.ndarray = get_bit_flags(self.value)
+        rank = value_bit.size
+        return rank, mask_bit, value_bit
+
+    def rank_ranges(self):
+        rank, mask_bit, value_bit = self.expand()
+        comb(np.sum(mask_bit), rank)
+
+    def values(self) -> npt.ArrayLike:
+        rank, mask_bit, value_bit = self.expand()
         return rank, mask_bit, value_bit
 
 
+    @staticmethod
+    def _build_int(value: int | npt.ArrayLike) -> int:
+        if isinstance(value, int):
+            return value
+        else:
+            ipt = np.bitwise_or.reduce(value)
+            if not np.sum(value) == ipt:
+                raise ValueError("val and mask mut not contain same flag twice")
+            return ipt
+
     @classmethod
     def empty(cls, bit_count: int) -> 'RankedBit':
-        return RankedBit(0, (1 << bit_count)-1)
+        return RankedBit(value=0, bit_mask=(1 << bit_count)-1, bit_count=bit_count)
+
+    @classmethod
+    def from_value(cls, val: int | npt.ArrayLike, mask: int | npt.ArrayLike = None) -> 'RankedBit':
+        v = cls._build_int(val)
+        m = cls._build_int(mask)
+        b_cnt = m.bit_count()
+        return RankedBit(value=v, bit_mask=m, bit_count=b_cnt)
+
 
     @classmethod
     def from_bits(cls, bits: npt.ArrayLike, indices: npt.ArrayLike = None) -> 'RankedBit':
         b = get_as_unsigned(bits,fit=True)
         i = get_as_unsigned(indices,fit=True) if indices is not None else np.arange(b.size)
         t = get_type_for_bit_count(np.max(i))
-        if (np.diff(i) >= 0).all(): # if indices ascending, they are from left
-            base_offset = t.itemsize * 8
-            i =  - i + base_offset
-            mask = np.bitwise_or.reduce(1 << i, dtype=t)
-            value = np.bitwise_or.reduce(b.astype(t) << i, dtype=t)
-        else:
-            mask = np.bitwise_or.reduce(1 << i, dtype=t)
-            value = np.bitwise_or.reduce(b.astype(t) << i, dtype=t)
-        return RankedBit(mask, value)
+        bit_count, mask, value = normalize_flags(i, b)
+        return RankedBit(mask, value, bit_count)
 
     def __repr__(self):
         rank, mask_bit, value_bit = self.expand()
-        mask_bit_count = np.sum(mask_bit)
-        mask_numbers = np.full_like(mask_bit, fill_value=-1)
-        mask_numbers[np.where(mask_bit == 1)] = np.arange(mask_bit_count -1, -1, -1)
-        mask_nrs = [f"{i}-{n}" if n >= 0 else "_" for i, n in enumerate(mask_numbers)]
+        mask_nrs = [f"{i}-{n}" if n >= 0 else "_" for i, n in enumerate(mask_bit)]
         mask = ", ".join(mask_nrs)
         return f"[{rank}][{mask}][{value_bit}]"
 
