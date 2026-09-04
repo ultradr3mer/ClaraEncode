@@ -1,12 +1,8 @@
-from itertools import permutations, islice
+from itertools import permutations, islice, combinations
 from pathlib import Path
-from turtledemo.penrose import star, start
 
 import numpy as np
 from clarautils import get_bits
-from numpy.ma.core import shape
-
-from tests.exampe_data import hermes_weights_data
 
 
 def transformationsmatrix(x, y):
@@ -29,6 +25,77 @@ def transformationsmatrix(x, y):
     M = np.outer(x, y) / np.dot(x, x)
     return M
 
+def hamming_distance(a, b):
+    return sum(x != y for x, y in zip(a, b))
+
+def generate_spread_sets(candidates, count):
+    if len(candidates) < count:
+        raise IndexError(f"Too few candidates: required={count}, candidates={len(candidates)}")
+    # Choose an initial vector
+    result = np.zeros_like(candidates, shape=(count, candidates.shape[1]))
+    result_written_i = 0
+    def pick_indices(i: np.ndarray):
+        nonlocal result_written_i, candidates, result
+        item_count = len(i)
+        result[result_written_i:result_written_i+item_count] = candidates[i]
+        result_written_i += item_count
+        candidates = np.delete(candidates, i, axis=0)
+
+    def calc_min_distances(a, b):
+        distance_bits = a[:, None, :] - b[None, :, :]
+        distance_per_axp = np.sum(np.abs(distance_bits), axis=2)
+        return np.min(distance_per_axp, axis=1)
+
+    def pick_from_subset(sub_candidates, required_dist):
+        sub_result_v = np.zeros_like(sub_candidates)
+        sub_result_i = np.zeros(len(sub_candidates), dtype=int)
+        index_candidates = np.arange(len(sub_candidates))
+        sub_result_written_i = 0
+
+        def write_sub_result(i):
+            nonlocal sub_result_v, sub_result_written_i, sub_candidates
+            sub_result_v[sub_result_written_i] = sub_candidates[i]
+            sub_result_i[sub_result_written_i] = i
+            sub_result_written_i += 1
+
+        def check_candidates(indices_to_check):
+            nonlocal sub_result_v, sub_result_written_i, sub_candidates
+            if sub_result_written_i == 0 or len(indices_to_check) == 0:
+                return indices_to_check
+            c_distances = calc_min_distances(sub_candidates[indices_to_check], sub_result_v[:sub_result_written_i])
+            sub_indices = np.where(c_distances >= required_dist)[0]
+            return indices_to_check[sub_indices]
+
+        while len(index_candidates) > 0:
+            write_sub_result(index_candidates[0])
+            index_candidates = check_candidates(index_candidates[1:])
+
+        return sub_result_i[:sub_result_written_i]
+
+    pick_indices(np.array([0]))
+
+    while result_written_i < count:
+        distances = calc_min_distances(candidates, result[:result_written_i])
+        max_distance = np.max(distances)
+        indices = np.where(distances == max_distance)[0]
+
+        sub_candidates = candidates[indices]
+        sub_i = pick_from_subset(sub_candidates, max_distance)
+        step_i = indices[sub_i]
+        max_indices = count-result_written_i
+
+        pick_indices(step_i)
+
+    return result
+
+def calc_req_counter_bits(item_count: int, defined: int, max=128):
+    for bit_count in range(defined+1,max):
+        possibilities = np.prod([bit_count - i
+                                 for i in range(defined)])
+        if possibilities >= item_count:
+            return bit_count, defined
+    raise ValueError("max bits exceeded")
+
 def random_model(x):
     # x = x[:128]
     item_count = len(x)
@@ -41,14 +108,15 @@ def random_model(x):
     bits_vec = np.array(bits, dtype=float) * 2 - 1
     # bits_vec = bits_vec - np.mean(bits_vec, axis=0, keepdims=True)
 
-    counter = np.arange(item_count)
-    counter_bit_count = 10
+    counter_bit_count, counter_n_defined = calc_req_counter_bits(item_count, defined=4)
     bit_list = list(range(counter_bit_count))
-    counter_n_defined = 4
     counter_per = np.array(list(islice(permutations(bit_list,counter_n_defined),item_count)))
     counter_bits = get_bits(np.sum(1 << counter_per, axis=1))
-    # counter_bits = counter_bits - np.mean(counter_bits, axis=1, keepdims=True)
-    # for i in range(len(x)):
+    # if len(counter_bits) > item_count*2:
+    #     counter_bits = generate_spread_sets(counter_bits, item_count)
+
+
+    # spreadset = generate_spread_sets(10,4)
 
     rng = np.random.default_rng(seed=42)
     r_shape = (bits.shape[0], 32)
@@ -109,6 +177,6 @@ if __name__ == "__main__":
             buffer = f.read()
         name = path.name
 
-        x = np.frombuffer(buffer, dtype=np.uint32)
+        x = np.frombuffer(buffer, dtype=np.uint16)
 
         random_model(x)
