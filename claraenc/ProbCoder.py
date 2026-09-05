@@ -6,7 +6,8 @@ from math import comb
 
 import numpy as np
 import numpy.typing as npt
-from clarautils import get_bits, Bitty, get_type_for_bit_count, get_as_unsigned, symbol_to_str, CommonNBitSc
+from clarautils import get_bits, Bitty, get_type_for_bit_count, get_as_unsigned, symbol_to_str, CommonNBitSc, \
+    get_as_signed
 from clarautils.commonEncoding import get_bit_flags, normalize_flags
 
 
@@ -113,27 +114,42 @@ def bits_rank_first(bit_count, min_r=0, max_r=None)->List[int]:
     #     return { r: [sum(p) for p in combinations(flags, r + 1)]
     #                 for r in range(min_r, max_r) }
     # else:
-    return [sum(p) for r in range(min_r, max_r) for p in combinations(flags, r + 1)]
+
+def bits_rank_first_from_flags(bit_flags, min_r=0, max_r=None) -> np.ndarray:
+    return get_as_unsigned([sum(p)
+                            for r in range(min_r, max_r)
+                            for p in combinations(bit_flags, r + 1)],
+                           fit=True)
+
+def get_comb_idx(comb_items, value_mask, value_rank) -> int:
+    for i, c in enumerate(combinations(comb_items, value_rank + 1)):
+        if sum(c) == value_mask:
+            return c
+    return -1
 
 class RankedBit(NamedTuple):
     bit_mask: int
-    value: int
+    bit_value: int
     bit_count: int
 
-    def expand(self) -> Tuple[int,npt.ArrayLike,npt.ArrayLike]:
+    def expand(self) -> Tuple[int,npt.ArrayLike,int, npt.ArrayLike]:
         mask_bit: np.ndarray = get_bit_flags(self.bit_mask)
-        value_bit: np.ndarray = get_bit_flags(self.value)
+        mask_rank = mask_bit.size
+        value_bit: np.ndarray = get_bit_flags(self.bit_value)
         rank = value_bit.size
-        return rank, mask_bit, value_bit
+        return mask_rank, mask_bit, rank, value_bit
 
-    def rank_ranges(self):
-        rank, mask_bit, value_bit = self.expand()
-        comb(np.sum(mask_bit), rank)
+    @staticmethod
+    def rank_states(mask_rank: int, val_rank: int) -> int: #Tuple[int,List[int]]:
+        comb_by_rank = [comb(mask_rank, idx_r+1) for idx_r in range(val_rank)]
+        return sum(comb_by_rank) #, comb_by_rank
 
-    def values(self) -> npt.ArrayLike:
-        rank, mask_bit, value_bit = self.expand()
-        return rank, mask_bit, value_bit
-
+    def value(self) -> npt.ArrayLike:
+        mask_rank, mask_bit, val_rank, value_bit = self.expand()
+        rank_floor = self.rank_states(mask_rank, val_rank-1)
+        value_idx = get_comb_idx(mask_bit, self.bit_value, val_rank)
+        scalar_value = rank_floor+value_idx
+        return scalar_value
 
     @staticmethod
     def _build_int(value: int | npt.ArrayLike) -> int:
@@ -147,14 +163,14 @@ class RankedBit(NamedTuple):
 
     @classmethod
     def empty(cls, bit_count: int) -> 'RankedBit':
-        return RankedBit(value=0, bit_mask=(1 << bit_count)-1, bit_count=bit_count)
+        return RankedBit(bit_mask=(1 << bit_count)-1, value=0, bit_count=bit_count)
 
     @classmethod
     def from_value(cls, val: int | npt.ArrayLike, mask: int | npt.ArrayLike = None) -> 'RankedBit':
         v = cls._build_int(val)
         m = cls._build_int(mask)
         b_cnt = m.bit_count()
-        return RankedBit(value=v, bit_mask=m, bit_count=b_cnt)
+        return RankedBit(bit_mask=m, value=v,  bit_count=b_cnt)
 
 
     @classmethod
@@ -166,8 +182,8 @@ class RankedBit(NamedTuple):
         return RankedBit(mask, value, bit_count)
 
     def __repr__(self):
-        rank, mask_bit, value_bit = self.expand()
-        mask_nrs = [f"{i}-{n}" if n >= 0 else "_" for i, n in enumerate(mask_bit)]
+        mask_rank, mask_bit, rank, value_bit = self.expand()
+        mask_nrs = [f"{i}-{n}" if n >= 0 else "_" for i, n in np.ndenumerate(mask_bit)]
         mask = ", ".join(mask_nrs)
         return f"[{rank}][{mask}][{value_bit}]"
 
@@ -209,13 +225,13 @@ def get_spread_set(item_count: int, n_defined: int, min_dist=2, max=128):
     index = np.array([0,0,0])
     def g_bit_list(start_r, stop_r):
         return bits_rank_first(group_bit_count, start_r, stop_r)
-    def iterate_groupwise_bits(max_overlap: int, group_r: int):
-        bit_lists = [g_bit_list(start_r=group_r, stop_r=group_r + 1) for _ in range(group_count)]
+    def iterate_groupwise_bits(max_overlap: int, idx_r: int):
+        bit_lists = [ranked_bits[idx_r] for _ in range(group_count)]
         for groupwise_bits in product(*bit_lists):
             yield groupwise_bits
 
-    for i in iterate_groupwise_bits(0,1):
-        print(i)
+    groupwise_b = [get_as_signed(i,fit=True) for i in iterate_groupwise_bits(0,0)]
+    print(groupwise_b)
 
     bits = np.arange(12)
 
@@ -229,7 +245,7 @@ def get_spread_set(item_count: int, n_defined: int, min_dist=2, max=128):
 
 
     print("spread_bits:")
-    print(spread_bits)
+    # print(spread_bits)
 
 
 
@@ -301,7 +317,7 @@ def random_model(x):
     print("approx:")
     print(approx)
     print("err:")
-    approx_bits = np.where(bits_vec>0,1,0)
+    approx_bits = np.where(approx>0,1,0)
     err = np.abs(approx_bits - bits)
     print(err)
     print(f"total: {np.sum(err)}/{err.size}")

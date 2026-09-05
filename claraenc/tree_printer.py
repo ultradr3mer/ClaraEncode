@@ -108,7 +108,7 @@ class TreePrinter:
         sb = self.mgr.begin_item("root", options=BeginItemOptions(parent=ParentChildRelation.DirectParentIsParent))
         sb = sb.append("(root)     [")
         self.offset = sb.get_cursor()
-        self.sb = sb.append(e.value).make_next_line()
+        self.sb = sb.append(e.bit_value).make_next_line()
 
     def on_node_begin(self, e):
         sb = self.mgr.begin_item(e.name, options=BeginItemOptions(parent=ParentChildRelation.DirectParentIsParent))
@@ -119,10 +119,10 @@ class TreePrinter:
         before = entropy_before_str(e.entropy)
         after = entropy_after_str(e.entropy)
         sb = sb.a(f"{before},").make_next_line() \
-            .fill_to(end="changes: ", to=offset).a(f"{get_diff(e.value_in, e.value)},") \
+            .fill_to(end="changes: ", to=offset).a(f"{get_diff(e.value_in, e.bit_value)},") \
             .fill_to(to=offset2).a(
             f"{get_diff(before, after)},").make_next_line() \
-            .fill_to(end="node: ", to=offset).a(f"{e.value},→") \
+            .fill_to(end="node: ", to=offset).a(f"{e.bit_value},→") \
             .fill_to(end="etp node: ", to=offset2).a(
             f"{after}] gain:{entropy_gain_sum(e.entropy):.3f}").make_next_line()
         self.offset = offset
@@ -156,9 +156,9 @@ class TreePrinter:
         sb.a(f"{e.parent_value}, leaf: ")
         offset2 = sb.get_cursor() + 8
         sb.a(f"({e.leaf_value})-[{e.leaf_str}]").make_next_line() \
-            .fill_to(end="changes: ", to=offset).a(f"{get_diff(e.parent_value, e.value)},") \
-            .fill_to(end="╰→[node: ", to=offset2).a(f"{e.value},").make_next_line() \
-            .fill_to(end="node: ", to=offset).a(f"{e.value}]") \
-            .fill_to(end="changes: ", to=offset2).a(f"{get_diff(e.value, e.full)},").make_next_line() \
+            .fill_to(end="changes: ", to=offset).a(f"{get_diff(e.parent_value, e.bit_value)},") \
+            .fill_to(end="╰→[node: ", to=offset2).a(f"{e.bit_value},").make_next_line() \
+            .fill_to(end="node: ", to=offset).a(f"{e.bit_value}]") \
+            .fill_to(end="changes: ", to=offset2).a(f"{get_diff(e.bit_value, e.full)},").make_next_line() \
             .fill_to(end="out: ", to=offset2).a(f"{e.full}]").make_next_line()
         self.sb = sb

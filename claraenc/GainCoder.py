@@ -276,9 +276,9 @@ class GainCoder:
             strait_params = []
             prev_value = value
             for p in check_defined(params, value):
-                self.emit(Strait(p.operation, prev_value, p.value))
+                self.emit(Strait(p.operation, prev_value, p.bit_value))
                 strait_params.append(p)
-                prev_value = p.value
+                prev_value = p.bit_value
                 params = p
             value = prev_value
 
@@ -328,7 +328,7 @@ class GainCoder:
             leaf_str = symbol_to_str(leaf_bits)
             self.leaf_len.append(len(get_bits(leaf_value)))
             full = self.merge_str(value, leaf_str)
-            self.emit(Leaf(node_name, params.value, value, full, leaf_value, leaf_str))
+            self.emit(Leaf(node_name, params.bit_value, value, full, leaf_value, leaf_str))
 
             bits = get_bits(full)
             number = get_number(bits)
@@ -348,9 +348,9 @@ class GainCoder:
             strait_params = []
             prev_value = params.value
             for p in check_defined(params):
-                self.emit(Strait(p.operation, prev_value, p.value))
+                self.emit(Strait(p.operation, prev_value, p.bit_value))
                 strait_params.append(p)
-                prev_value = p.value
+                prev_value = p.bit_value
                 params = p
 
             split = self.get_next_split(params.data, params.remaining_bits)
