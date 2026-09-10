@@ -76,27 +76,40 @@ def test_result_not_empty_and_no_duplicates():
 
 
 def test_max_items_limits_result():
-    items = get_spread_set_simple(bit_count=16, n_defined=4, min_dist=4, max_items=3)
+    items = get_spread_set_simple(bit_count=16, n_defined=4, min_dist=4, item_count=3)
     assert len(items) == 3
     assert min_off_diagonal(items) >= 4
 
 
 def test_max_items_one_returns_single_item():
-    items = get_spread_set_simple(bit_count=16, n_defined=4, min_dist=4, max_items=1)
+    items = get_spread_set_simple(bit_count=16, n_defined=4, min_dist=4, item_count=1)
     assert len(items) == 1
 
 
 def test_max_items_zero_means_unlimited():
-    limited = get_spread_set_simple(bit_count=16, n_defined=4, min_dist=4, max_items=3)
+    limited = get_spread_set_simple(bit_count=16, n_defined=4, min_dist=4, item_count=3)
     full = get_spread_set_simple(bit_count=16, n_defined=4, min_dist=4)
     assert len(full) > len(limited)
+
+
+def test_expected_count2_returned():
+    # should return something like '11110000' and '00001111'
+    result = get_spread_set_simple(bit_count=8, n_defined=4, min_dist=8)
+    assert len(result) == 2
+
+def test_expected_count6_returned():
+    # should return something like
+    # '11110000', '11001100', '11000011' and '00111100', '00110011' then '00001111'
+    result = get_spread_set_simple(bit_count=8, n_defined=4, min_dist=4)
+    assert len(result) == 6
+
 
 
 TESTS = [test_calc_dists_pairwise, test_calc_dists_self_diagonal_is_zero,
          test_all_pairs_at_least_min_dist, test_rows_have_n_defined_bits,
          test_values_are_binary, test_result_not_empty_and_no_duplicates,
          test_max_items_limits_result, test_max_items_one_returns_single_item,
-         test_max_items_zero_means_unlimited]
+         test_max_items_zero_means_unlimited, test_expected_count2_returned, test_expected_count6_returned]
 
 if __name__ == "__main__":
     for t in TESTS:

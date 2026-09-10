@@ -20,7 +20,7 @@ def calc_dists(a, b):
     return distance_per_axp
 
 
-def get_spread_set_simple(bit_count: int, n_defined: int, min_dist=2, max_items=0):
+def get_spread_set_simple(bit_count: int, n_defined: int, min_dist=2, item_count=0):
     """greedy generate a spread set of bit vectors.
 
     Candidates are the combinations of n_defined out of bit_count positions,
@@ -32,7 +32,7 @@ def get_spread_set_simple(bit_count: int, n_defined: int, min_dist=2, max_items=
     :param bit_count: number of bit positions per item
     :param n_defined: number of set positions per item
     :param min_dist: minimum L1 distance between any two picked items
-    :param max_items: stop after picking this many items (0 = unlimited)
+    :param item_count: stop after picking this many items (0 = unlimited)
     :return: int8 array of shape (n_items, bit_count), one item per row
     """
 
@@ -66,15 +66,18 @@ def get_spread_set_simple(bit_count: int, n_defined: int, min_dist=2, max_items=
 
     idx_set = [0]
     picked = combinations_to_check[idx_set]
-    if 0 < max_items <= len(idx_set):
+    if 0 < item_count <= len(idx_set):
         return picked.copy()
     for i, c in enumerate(combinations_to_check):
         min_d = np.min(calc_dists(picked, c[None, :]))
         if min_d >= min_dist:
             idx_set.append(i)
             picked = combinations_to_check[idx_set]
-            if 0 < max_items <= len(idx_set):
+            if 0 < item_count <= len(idx_set):
                 return picked.copy()
+
+    if 0 < item_count and len(idx_set) != item_count:
+        raise Exception(f"generated to few items! generated: {len(idx_set)} required: {item_count}")
 
     return picked.copy()
 
