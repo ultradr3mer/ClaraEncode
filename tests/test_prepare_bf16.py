@@ -17,7 +17,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import numpy as np
 
 from claraenc.Huffman import HuffmanCoder
-from claraenc.FlipSort import prepare_uint16, SortedFlippedAry
+from claraenc.FlipSort import prepare_uint16, SortedFlippedAry, fmt_probs, print_probs, \
+    fmt_prob_bars, print_prob_bars
 
 
 def prepare(values):
@@ -75,8 +76,53 @@ def test_huffman_coder_known_distribution():
     assert sorted(len(c) for c in coder.codes.values()) == [1, 2, 3, 3]
 
 
+def test_fmt_probs():
+    row = [0.14, 0.39, 0.28, 0.50, 0.28, 0.32]
+    # leading zero dropped, trailing zeros trimmed, >= 1 decimal: .50 -> .5, 1 -> 1.0
+    assert fmt_probs(row) == "[.14 .39 .28 .5 .28 .32]"
+    assert fmt_probs([row, row]) == ("[[.14 .39 .28 .5 .28 .32]\n"
+                                     " [.14 .39 .28 .5 .28 .32]]")
+    assert fmt_probs([[[0.5, 0.25], [0.75, 0.0]]]) == "[[[.5 .25]\n  [.75 .0]]]"
+    # rounding not truncation, adjustable precision
+    assert fmt_probs([1 / 3, 2 / 3]) == "[.33 .67]"
+    assert fmt_probs([1 / 3, 2 / 3], prec=3) == "[.333 .667]"
+    # 1 is displayed as 1.0, 0 as .0
+    assert fmt_probs([1, 0, 0.5, 0.14]) == "[1.0 .0 .5 .14]"
+    # scalar and empty
+    assert fmt_probs(1.0) == "1.0"
+    assert fmt_probs(0.5) == ".5"
+    assert fmt_probs(np.zeros(0)) == "[]"
+
+
+def test_fmt_prob_bars():
+    # one line: 8 levels, 1/8 per char, [ ] marks data extent
+    assert fmt_prob_bars([0.14, 0.39, 0.28, 0.50, 0.28, 0.32]) == "[▁▃▂▄▂▃]"
+    assert fmt_prob_bars([1.0, 0.0, 0.5, 0.125]) == "[█ ▄▁]"
+    # two lines: 16 levels, bar fills bottom line first, then overflows up
+    assert fmt_prob_bars([0.14, 0.39, 0.50, 1.0, 0.0], lines=2) == \
+        "[   █ ]\n[▂▆██ ]"
+    # 2-D: one bracketed bar group per row, blank line apart
+    assert fmt_prob_bars([[1.0, 0.0], [0.5, 0.14]], lines=2) == \
+        "[█ ]\n[█ ]\n\n[  ]\n[█▂]"
+    # scalar
+    assert fmt_prob_bars(1.0) == "[█]"
+
+
+def test_print_prob_bars():
+    with contextlib.redirect_stdout(io.StringIO()) as out:
+        assert print_prob_bars([1.0, 0.5], lines=2) == "[█ ]\n[██]"
+    assert out.getvalue() == "[█ ]\n[██]\n"
+
+
+def test_print_probs():
+    with contextlib.redirect_stdout(io.StringIO()) as out:
+        assert print_probs([[0.14, 1.0], [0.28, 0.50]]) == "[[.14 1.0]\n [.28 .5]]"
+    assert out.getvalue() == "[[.14 1.0]\n [.28 .5]]\n"
+
+
 TESTS = [test_sorted_case, test_defined_one_flips_to_zero,
-         test_all_defined, test_real_data, test_huffman_coder_known_distribution]
+         test_all_defined, test_real_data, test_huffman_coder_known_distribution,
+         test_fmt_probs, test_print_probs, test_fmt_prob_bars, test_print_prob_bars]
 
 if __name__ == "__main__":
     for t in TESTS:

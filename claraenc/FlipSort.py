@@ -17,6 +17,55 @@ from claraenc.bf16_bitty import BF16_SEM_SLICES
 def get_between_01(vals: np.ndarray) -> np.ndarray:
     return vals[np.where(((vals > 0) & (vals < 1)))]
 
+
+def fmt_probs(vals: npt.ArrayLike, prec: int = 2) -> str:
+    """probs/means as decimals, any ndim: [.14 .39 .5 1.0 ...] or nested.
+    leading zero dropped (0.5 -> .5), trailing zeros trimmed but at least
+    one decimal kept (1 -> 1.0, .50 -> .5)."""
+    def f(v: float) -> str:
+        s = f"{v:.{prec}f}".rstrip("0")
+        if s.endswith("."):
+            s += "0"
+        return s[1:] if s.startswith("0.") else s
+    return np.array2string(np.asarray(vals, dtype=np.float64),
+                           separator=" ",
+                           formatter={"float_kind": f})
+
+
+def print_probs(vals: npt.ArrayLike, prec: int = 2) -> str:
+    out = fmt_probs(vals, prec)
+    print(out)
+    return out
+
+
+def fmt_prob_bars(vals: npt.ArrayLike, lines: int = 1, blocks: str = " ▁▂▃▄▅▆▇█") -> str:
+    """probs as bar chars, one val = one char column per line.
+    lines=1: 8 levels ▁..█; lines=2: 16 levels, the bar grows through the
+    lower line first, then overflows into the upper one. Last axis is the
+    bar row, leading axes become bracketed groups ([...] per row like
+    array2string, blank line apart)."""
+    a = np.asarray(vals, dtype=np.float64)
+    if a.ndim == 0:
+        a = a.reshape(1)
+    rows = a.reshape(-1, a.shape[-1])
+    steps = 8 * lines
+    out = []
+    for row in rows:
+        level = np.clip(np.round(row * steps), 0, steps).astype(int)
+        bar = []
+        for ln in range(lines - 1, -1, -1):
+            part = np.clip(level - 8 * ln, 0, 8)
+            body = "".join(blocks[p] for p in part)
+            bar.append("[" + body + "]")
+        out.append("\n".join(bar))
+    return "\n\n".join(out)
+
+
+def print_prob_bars(vals: npt.ArrayLike, lines: int = 1) -> str:
+    out = fmt_prob_bars(vals, lines=lines)
+    print(out)
+    return out
+
 class SortedFlippedAry(NamedTuple): # Die Bits sind sortiert, nicht die items
     flipped_bits: CommonNBitSc
     ary: NBitArray
@@ -53,8 +102,9 @@ class SortedFlippedAry(NamedTuple): # Die Bits sind sortiert, nicht die items
 
         flipped_data = cls.flip_data_ary(ary, flip_packed)
         flipped_means = cls.flip_means_ary(original_means, flip_mask)
-        print("P(B=1)*9 / Flip / BER*9   (BER = P(bit != most common value)):")
-        print(np.array((original_means*9, flip_mask, flipped_means*9), dtype=np.uint8))
+        print("P(B=1) / Flip / BER   (BER = P(bit != most common value)):")
+        print_probs(np.array((original_means, flip_mask, flipped_means)))
+        print_prob_bars(np.array((original_means, flip_mask, flipped_means)))
         print("Flips:", flip_mask, "packed:", flip_packed)
         sort_record = ReversibleSort.arg_merge_sort(flipped_means)
         sort_idx = sort_record.to_argsort()
@@ -69,8 +119,9 @@ class SortedFlippedAry(NamedTuple): # Die Bits sind sortiert, nicht die items
 
         sorted_flipped_means = flipped_means[sort_idx]
         original_means_sorted = np.sort(original_means)
-        print("Sorted desc: P(B=1)*9 / Diff(P1-BER)*9 / BER*9:")
-        print(np.array((original_means_sorted*9, (original_means_sorted-sorted_flipped_means)*9, sorted_flipped_means*9), dtype=np.int8))
+        print("Sorted desc: P(B=1) / Diff(P1-BER) / BER:")
+        print_probs(np.array((original_means_sorted, (original_means_sorted-sorted_flipped_means), sorted_flipped_means)))
+        print_prob_bars(np.array((original_means_sorted, (original_means_sorted-sorted_flipped_means), sorted_flipped_means)))
 
         o_mean = np.mean(ary)
         f_mean = np.mean(flipped_data)
@@ -100,6 +151,9 @@ class SortedFlippedAry(NamedTuple): # Die Bits sind sortiert, nicht die items
         unfliped = self.flip_data_ary(unsorted, self.flipped_bits)
         return unfliped
 
+    def get_internal(self) -> NBitArray:
+        return self.ary
+
 def prepare_uint16(buffer: bytes) -> SortedFlippedAry:
     bit_count = 16
     x = np.frombuffer(buffer, dtype=np.uint16)
@@ -126,12 +180,19 @@ def prepare_uint32(buffer: bytes) -> SortedFlippedAry:
     x = np.frombuffer(buffer, dtype=np.uint32)
     b = Bitty(x, bit_count)
 
-    result = SortedFlippedAry.build_from(b)
+    step1 = SortedFlippedAry.build_from(b)
 
-    if not (result.get_ary() == x).all():
+    if not (step1.get_ary() == x).all():
         raise Exception("Could not reconstruct the original aray")
 
-    return result
+    bitty = Bitty(step1.get_internal())
+    groups = bitty.group_by_bit(slice(-4,None))
+
+    for k, g in groups.items():
+        print(k)
+        print_probs(g.get_bitwise_mean(0))
+        print_prob_bars(g.get_bitwise_mean(0), lines=2)
+
 
 
 if __name__ == "__main__":
@@ -144,9 +205,6 @@ if __name__ == "__main__":
         name = path.name
 
         sf = prepare_uint32(buffer)
-
-
-
 
 
 
