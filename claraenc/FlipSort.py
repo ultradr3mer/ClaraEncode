@@ -11,7 +11,6 @@ if globals().get("__package__", "") in (None, ""):
 from clarautils import Bitty, NBitArray, NBitAryOnly, get_number, get_bitmask, get_type_for_scalar, \
     CommonNBitSc, get_bits, get_bit_count
 
-from claraenc.Huffman import HuffmanCoder
 from claraenc.bf16_bitty import BF16_SEM_SLICES
 
 def get_between_01(vals: np.ndarray) -> np.ndarray:
