@@ -48,7 +48,7 @@ class SortedFlippedAry(NamedTuple): # Die Bits sind sortiert, nicht die items
 
         flipped_data = cls.flip_data_ary(ary, flip_packed)
         flipped_means = cls.flip_means_ary(original_means, flip_mask)
-        print("P(B=1)*9 / Flip / BER*18   (BER = P(bit != most common value)):")
+        print("P(B=1)*9 / Flip / BER*9   (BER = P(bit != most common value)):")
         print(np.array((original_means*9, flip_mask, flipped_means*9), dtype=np.uint8))
         print("Flips:", flip_mask, "packed:", flip_packed)
         sort_idx = np.argsort(flipped_means, kind='stable')
@@ -90,17 +90,6 @@ class SortedFlippedAry(NamedTuple): # Die Bits sind sortiert, nicht die items
         unfliped = self.flip_data_ary(unsorted, self.flipped_bits)
         return unfliped
 
-
-class CutoffScanRow(NamedTuple):
-    c1: int
-    k: int
-    symbols: int
-    huff_avg: float
-    total: float
-    table: float
-    total_all: float
-    floor: float
-
 def prepare_uint16(buffer: bytes) -> SortedFlippedAry:
     bit_count = 16
     x = np.frombuffer(buffer, dtype=np.uint16)
@@ -120,6 +109,7 @@ def prepare_uint16(buffer: bytes) -> SortedFlippedAry:
         raise Exception("Could not reconstruct the original aray")
 
     return result
+
 
 def prepare_uint32(buffer: bytes) -> SortedFlippedAry:
     bit_count = 32

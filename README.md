@@ -8,7 +8,7 @@ without lengthening the code; the max-entropy-gain bit splits each node.
 
 Also here:
 
-- `PrepareBf16.py` — bf16 sort+flip prepare step (`SortedFlippedAry`)
+- `FlipSort.py` — bf16 sort+flip prepare step (`SortedFlippedAry`)
 - `ProbCoder.py` — linear bit-probability model (`ProbModel`, greedy, LOO)
 - `IndexCoder.py` — `DiffArray`, gap coding of sorted uniques
 - `ReversibleSort.py` — reversible mergesort records (`MergeSortRecord`)

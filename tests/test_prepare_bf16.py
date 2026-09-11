@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import numpy as np
 
 from claraenc.Huffman import HuffmanCoder
-from claraenc.PrepareBf16 import prepare_uint16, huffman_cutoff_scan, SortedFlippedAry
+from claraenc.FlipSort import prepare_uint16, huffman_cutoff_scan, SortedFlippedAry
 
 
 def prepare(values):
