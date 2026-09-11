@@ -100,18 +100,21 @@ def test_fmt_prob_bars():
     assert fmt_prob_bars([1.0, 0.0, 0.5, 0.125]) == "[█ ▄▁]"
     # two lines: 16 levels, bar fills bottom line first, then overflows up
     assert fmt_prob_bars([0.14, 0.39, 0.50, 1.0, 0.0], lines=2) == \
-        "[   █ ]\n[▂▆██ ]"
+        "⎡   █ ⎤\n⎣▂▆██ ⎦"
     # 2-D: one bracketed bar group per row, blank line apart
     assert fmt_prob_bars([[1.0, 0.0], [0.5, 0.14]], lines=2) == \
-        "[█ ]\n[█ ]\n\n[  ]\n[█▂]"
+        "⎡█ ⎤\n⎣█ ⎦\n\n⎡  ⎤\n⎣█▂⎦"
+    # 3 lines: top ⎡⎤, middle ⎢⎥, bottom ⎣⎦
+    assert fmt_prob_bars([1.0], lines=3) == \
+        "⎡█⎤\n⎢█⎥\n⎣█⎦"
     # scalar
     assert fmt_prob_bars(1.0) == "[█]"
 
 
 def test_print_prob_bars():
     with contextlib.redirect_stdout(io.StringIO()) as out:
-        assert print_prob_bars([1.0, 0.5], lines=2) == "[█ ]\n[██]"
-    assert out.getvalue() == "[█ ]\n[██]\n"
+        assert print_prob_bars([1.0, 0.5], lines=2) == "⎡█ ⎤\n⎣██⎦"
+    assert out.getvalue() == "⎡█ ⎤\n⎣██⎦\n"
 
 
 def test_print_probs():

@@ -49,6 +49,8 @@ def fmt_prob_bars(vals: npt.ArrayLike, lines: int = 1, blocks: str = " ▁▂▃
         a = a.reshape(1)
     rows = a.reshape(-1, a.shape[-1])
     steps = 8 * lines
+    # 1 line: [ ]; multi-line: ⎡⎤ top, ⎢⎥ middle, ⎣⎦ bottom
+    sides = [("⎡", "⎤"), ("⎢", "⎥"), ("⎣", "⎦")] if lines > 1 else [("[", "]")] * lines
     out = []
     for row in rows:
         level = np.clip(np.round(row * steps), 0, steps).astype(int)
@@ -56,12 +58,14 @@ def fmt_prob_bars(vals: npt.ArrayLike, lines: int = 1, blocks: str = " ▁▂▃
         for ln in range(lines - 1, -1, -1):
             part = np.clip(level - 8 * ln, 0, 8)
             body = "".join(blocks[p] for p in part)
-            bar.append("[" + body + "]")
+            li = 0 if ln == lines - 1 else (2 if ln == 0 else 1)
+            l, r = sides[li]
+            bar.append(l + body + r)
         out.append("\n".join(bar))
     return "\n\n".join(out)
 
 
-def print_prob_bars(vals: npt.ArrayLike, lines: int = 1) -> str:
+def print_prob_bars(vals: npt.ArrayLike, lines: int = 2) -> str:
     out = fmt_prob_bars(vals, lines=lines)
     print(out)
     return out
@@ -103,7 +107,6 @@ class SortedFlippedAry(NamedTuple): # Die Bits sind sortiert, nicht die items
         flipped_data = cls.flip_data_ary(ary, flip_packed)
         flipped_means = cls.flip_means_ary(original_means, flip_mask)
         print("P(B=1) / Flip / BER   (BER = P(bit != most common value)):")
-        print_probs(np.array((original_means, flip_mask, flipped_means)))
         print_prob_bars(np.array((original_means, flip_mask, flipped_means)))
         print("Flips:", flip_mask, "packed:", flip_packed)
         sort_record = ReversibleSort.arg_merge_sort(flipped_means)
@@ -120,7 +123,6 @@ class SortedFlippedAry(NamedTuple): # Die Bits sind sortiert, nicht die items
         sorted_flipped_means = flipped_means[sort_idx]
         original_means_sorted = np.sort(original_means)
         print("Sorted desc: P(B=1) / Diff(P1-BER) / BER:")
-        print_probs(np.array((original_means_sorted, (original_means_sorted-sorted_flipped_means), sorted_flipped_means)))
         print_prob_bars(np.array((original_means_sorted, (original_means_sorted-sorted_flipped_means), sorted_flipped_means)))
 
         o_mean = np.mean(ary)
@@ -190,8 +192,7 @@ def prepare_uint32(buffer: bytes) -> SortedFlippedAry:
 
     for k, g in groups.items():
         print(k)
-        print_probs(g.get_bitwise_mean(0))
-        print_prob_bars(g.get_bitwise_mean(0), lines=2)
+        print_prob_bars(g.get_bitwise_mean(0), lines=1)
 
 
 
