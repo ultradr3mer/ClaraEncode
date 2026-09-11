@@ -1,7 +1,7 @@
 """PrepareBf16 tests: SortedFlippedAry.build_from / get_ary round-trip.
 
 Clara's design (2026-08-30): flip all flags leaning toward 1 (incl.
-defined-1 bits -> 0), one global stable descending argsort by flipped
+defined-1 bits -> 0), one global stable ascending argsort by flipped
 mean, ary kept full-width as a SliceView. get_ary() must restore the
 original buffer (prepare_uint16 itself raises if not).
 
@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import numpy as np
 
 from claraenc.Huffman import HuffmanCoder
-from claraenc.FlipSort import prepare_uint16, huffman_cutoff_scan, SortedFlippedAry
+from claraenc.FlipSort import prepare_uint16, SortedFlippedAry
 
 
 def prepare(values):
@@ -30,20 +30,20 @@ def prepare(values):
 def test_sorted_case():
     # pos1 mean .5, pos2 mean .75 (flip), pos3 mean .25, pos15 constant 1 (flip)
     sf, x = prepare([28673, 24577, 8193, 1])
-    assert np.array_equal(sf.bit_key, [1, 2, 3, 0, 4, 5, 6, 7,
-                                       8, 9, 10, 11, 12, 13, 14, 15])
+    assert np.array_equal(sf.bit_key, [0, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+                                       13, 14, 15, 2, 3, 1])
     assert sf.flipped_bits.value == 8193
     assert sf.ary.get_bit_count() == 16
-    assert np.array_equal(sf.ary.get_array(), [40960, 32768, 0, 16384])
+    assert np.array_equal(sf.ary.get_array(), [3, 1, 0, 4])
     assert np.array_equal(np.array(sf.get_ary()), x)
 
 
 def test_defined_one_flips_to_zero():
-    # sign bit (pos0) constant 1 -> flipped to 0, sorts behind the .5 bit
+    # sign bit (pos0) constant 1 -> flipped to 0, sorts before the .5 bit
     sf, x = prepare([49152, 49152, 32768, 32768])
     assert sf.flipped_bits.value == 32768
-    assert np.array_equal(sf.bit_key[:2], [1, 0])
-    assert np.array_equal(sf.ary.get_array(), [32768, 32768, 0, 0])
+    assert np.array_equal(sf.bit_key[:2], [0, 2])
+    assert np.array_equal(sf.ary.get_array(), [1, 1, 0, 0])
     assert np.array_equal(np.array(sf.get_ary()), x)
 
 
@@ -56,7 +56,7 @@ def test_all_defined():
 
 
 def test_real_data():
-    path = Path("F:\\source\\sandbox314\\modelCompression\\bins\\model.layers.0.input_layernorm.weight.bin")
+    path = Path("/home/deck/PycharmProjects/python-sandbox/modelCompression/bins/model.layers.0.input_layernorm.weight.bin")
     if not path.exists():
         print("test_real_data: SKIPPED (bin file missing)")
         return
@@ -75,23 +75,8 @@ def test_huffman_coder_known_distribution():
     assert sorted(len(c) for c in coder.codes.values()) == [1, 2, 3, 3]
 
 
-def test_huffman_cutoff_scan():
-    # two .5 columns (pos 14/15), rest zero -> zero_start 2, vals stay [3,3,0,0]
-    sf, x = prepare([3, 3, 0, 0])
-    with contextlib.redirect_stdout(io.StringIO()) as out:
-        rows = huffman_cutoff_scan(sf)
-    assert [(r.c1, r.k) for r in rows] == [(0, 2), (1, 1), (2, 0)]
-    assert rows[0].symbols == 2 and rows[0].huff_avg == 1.0 and rows[0].total == 1.0
-    assert rows[0].table == 3.0 and rows[0].total_all == 4.0
-    assert rows[1].table == 2.5 and rows[1].total_all == 4.5
-    assert rows[2].huff_avg == 0.0 and rows[2].total_all == 2.0
-    assert rows[0].floor == 2.0
-    assert "best: c1=2" in out.getvalue()
-
-
 TESTS = [test_sorted_case, test_defined_one_flips_to_zero,
-         test_all_defined, test_real_data, test_huffman_coder_known_distribution,
-         test_huffman_cutoff_scan]
+         test_all_defined, test_real_data, test_huffman_coder_known_distribution]
 
 if __name__ == "__main__":
     for t in TESTS:

@@ -11,16 +11,22 @@ if globals().get("__package__", "") in (None, ""):
 from clarautils import Bitty, NBitArray, NBitAryOnly, get_number, get_bitmask, get_type_for_scalar, \
     CommonNBitSc, get_bits, get_bit_count
 
+from claraenc.ReversibleSort import MergeSortRecord, ReversibleSort
 from claraenc.bf16_bitty import BF16_SEM_SLICES
 
 def get_between_01(vals: np.ndarray) -> np.ndarray:
     return vals[np.where(((vals > 0) & (vals < 1)))]
 
 class SortedFlippedAry(NamedTuple): # Die Bits sind sortiert, nicht die items
-    bit_key: np.ndarray
     flipped_bits: CommonNBitSc
     ary: NBitArray
     means: np.ndarray
+    sort_record: MergeSortRecord
+
+    @property
+    def bit_key(self) -> np.ndarray:
+        """the classic argsort index array, replayed from the record."""
+        return self.sort_record.to_argsort()
 
     @classmethod
     def flip_means_ary(cls, ary: npt.NDArray[np.floating], mask: npt.NDArray[np.unsignedinteger]) -> npt.NDArray[np.floating]:
@@ -50,11 +56,16 @@ class SortedFlippedAry(NamedTuple): # Die Bits sind sortiert, nicht die items
         print("P(B=1)*9 / Flip / BER*9   (BER = P(bit != most common value)):")
         print(np.array((original_means*9, flip_mask, flipped_means*9), dtype=np.uint8))
         print("Flips:", flip_mask, "packed:", flip_packed)
-        sort_idx = np.argsort(flipped_means, kind='stable')
+        sort_record = ReversibleSort.arg_merge_sort(flipped_means)
+        sort_idx = sort_record.to_argsort()
 
-        original_idx = np.arange(bit_count, dtype=get_type_for_scalar(bit_count))
         sorted_data = flipped_data.b[sort_idx]
-        actual_bit_idx = original_idx[sort_idx]
+
+        idx_bytes = bit_count * np.dtype(get_type_for_scalar(bit_count)).itemsize
+        print("Sort memory: argsort idx", idx_bytes, "B vs record",
+              sort_record.bit_count, "bits ->", sort_record.nbytes, "B packed")
+        print("saved:", idx_bytes - sort_record.nbytes, "B",
+              f"({100 * (idx_bytes - sort_record.nbytes) / idx_bytes:.0f}% less)")
 
         sorted_flipped_means = flipped_means[sort_idx]
         original_means_sorted = np.sort(original_means)
@@ -81,11 +92,11 @@ class SortedFlippedAry(NamedTuple): # Die Bits sind sortiert, nicht die items
         slices_of_4 = get_slices_of_len(4)
         # slices_of_8 = get_slices_of_len(8)
 
-        return SortedFlippedAry(actual_bit_idx, flip_packed, sorted_data, sorted_flipped_means)
+        return SortedFlippedAry(flip_packed, sorted_data, sorted_flipped_means, sort_record)
 
     def get_ary(self) -> NBitArray:
         """reverses the sort and flip to restore the original aray"""
-        unsorted = self.ary.b[np.argsort(self.bit_key)]
+        unsorted = self.ary.b[self.sort_record.get_reversed().to_argsort()]
         unfliped = self.flip_data_ary(unsorted, self.flipped_bits)
         return unfliped
 
