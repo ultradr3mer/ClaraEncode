@@ -71,6 +71,44 @@ def print_prob_bars(vals: npt.ArrayLike, lines: int = 2) -> str:
     print(out)
     return out
 
+class MeanChange(NamedTuple):
+    change: np.ndarray
+    prob_key: np.ndarray
+    change_key: np.ndarray
+    same_order: bool
+
+
+def get_mean_change(ary: NBitArray) -> MeanChange:
+    """|dP| per bit: expected absolute change of the OTHER bits' means
+    when bit i becomes known (items grouped by bit i, share-weighted by
+    group size; bit i itself is excluded — the group views drop it).
+    prob_key is the P(B=1) sort of ary, change_key the |dP| sort;
+    same_order tells whether the bits would be ordered differently."""
+    bitty = Bitty(ary)
+    bit_count = bitty.get_bit_count()
+    item_count = bitty.get_item_count()
+    bits = range(bit_count)
+    original_means = bitty.get_bitwise_mean(axis=0)
+    diffs = np.zeros(bit_count, np.float32)
+    for i in bits:
+        other_means = np.delete(original_means, i)
+        diff_per_group = [np.abs(g.get_bitwise_mean(axis=0) - other_means)
+                          * g.get_item_count() / item_count for k, g in bitty.group_by_bit(i).items()]
+        print(f"If Bit {i} is 0/1:")
+        print_prob_bars(np.array(diff_per_group)*10)
+        diffs[i] = np.sum(diff_per_group)
+    prob_key = np.argsort(original_means, kind="stable")
+    change_key = np.argsort(diffs, kind="stable")
+    same_order = bool(np.array_equal(prob_key, change_key))
+    print("Per bit: P(B=1) / |dP| (change of the other bits' means when the bit is known):")
+    print_prob_bars(np.array((original_means, diffs)))
+    print("same order as a P(B=1) sort:", same_order)
+    if not same_order:
+        print(" P1 :", prob_key)
+        print(" |dP|:", change_key)
+    return MeanChange(diffs, prob_key, change_key, same_order)
+
+
 class SortedFlippedAry(NamedTuple): # Die Bits sind sortiert, nicht die items
     flipped_bits: CommonNBitSc
     ary: NBitArray
@@ -157,6 +195,7 @@ class SortedFlippedAry(NamedTuple): # Die Bits sind sortiert, nicht die items
     def get_internal(self) -> NBitArray:
         return self.ary
 
+
 def prepare_uint16(buffer: bytes) -> SortedFlippedAry:
     bit_count = 16
     x = np.frombuffer(buffer, dtype=np.uint16)
@@ -188,12 +227,16 @@ def prepare_uint32(buffer: bytes) -> SortedFlippedAry:
     if not (step1.get_ary() == x).all():
         raise Exception("Could not reconstruct the original aray")
 
-    bitty = Bitty(step1.get_internal())
-    groups = bitty.group_by_bit(slice(-4,None))
+    get_mean_change(step1.get_internal())
 
-    for k, g in groups.items():
-        print(k)
-        print_prob_bars(g.get_bitwise_mean(0), lines=1)
+    # bitty = Bitty(step1.get_internal())
+    # groups = bitty.group_by_bit(slice(-4,None))
+    #
+    # for k, g in groups.items():
+    #     print(k)
+    #     print_prob_bars(g.get_bitwise_mean(0), lines=1)
+    #
+    # return step1
 
 
 
