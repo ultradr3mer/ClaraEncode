@@ -15,6 +15,7 @@ from clarautils import get_bits, get_number, symbol_to_str, get_bitmask, get_ind
 from claraenc.entropy import get_bitwise_entropy
 from claraenc.tree_printer import TreePrinter, Char
 from claraenc.tree_printer import RootBegin, NodeBegin, Strait, NodeSplit, RootSplit, NodeEnd, Leaf
+from claraenc.sandbox_paths import sandbox_path
 
 class MultiBitDef(NamedTuple):
     mask: int
@@ -552,7 +553,7 @@ def parse_from_np_array(x, bits_to_take, name):
     return coder
 
 if __name__ == "__main__":
-    base = Path("F:\\source\\sandbox314\\modelCompression\\bins")
+    base = sandbox_path("bins")
 
     bits_to_shift = 0
     bits_to_take = 32

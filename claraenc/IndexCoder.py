@@ -14,6 +14,7 @@ if globals().get("__package__", "") in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from claraenc.ReversibleSort import ReversibleSort
+from claraenc.sandbox_paths import sandbox_path
 
 
 def print_arry(arr, name):
@@ -92,7 +93,7 @@ class DiffArray:
 
 
 if __name__ == "__main__":
-    base = Path("F:\\source\\sandbox314\\modelCompression\\bins")
+    base = sandbox_path("bins")
 
     for path in base.glob("model.layers.0.input_layernorm.weight.bin"):
         with open(path, "rb") as f:

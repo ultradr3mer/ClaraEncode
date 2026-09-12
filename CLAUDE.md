@@ -47,7 +47,7 @@ numbering and intentionally-verbatim error strings/typos).
 ## Commands
 
 ```powershell
-python claraenc\GainCoder.py                    # coder demo, reads a .bin from F:\source\sandbox314\modelCompression\bins
+python claraenc\GainCoder.py                    # coder demo, reads a .bin via claraenc/sandbox_paths.py
 python tests\test_tree.py                       # standalone test script (plain asserts, run directly)
 $env:PYTHONUTF8='1'; python tests\compare_v0.py # v0 baseline parity check
 pytest tests\test_prob.py                       # a subset of tests use real pytest (fixtures/parametrize)
@@ -88,8 +88,11 @@ There is no build step; this is a plain-script Python project (no
 - Modules run standalone (`if __name__ == "__main__"`) as well as import as
   a package; each does `sys.path.insert(0, ...)` to the repo root when
   `__package__` is empty so `from claraenc...` imports resolve either way.
-- Demo/test data paths are hardcoded to local sandbox locations, e.g.
-  `F:\source\sandbox314\modelCompression\bins\model.layers.0.input_layernorm.weight.bin`
-  — several tests (`test_merge_sort.py`'s `test_real_data`, etc.) skip
-  gracefully with a printed message when that file is missing rather than
-  failing.
+- Demo/test data lives outside the repo in a local `modelCompression`
+  sandbox (bin files like `model.layers.0.input_layernorm.weight.bin`).
+  Its root differs per machine (Windows dev box vs Steam Deck), so every
+  call site resolves it through `claraenc/sandbox_paths.py::sandbox_path()`
+  instead of a hardcoded string — add a new machine's root there, not at
+  the call site. Several tests (`test_merge_sort.py`'s `test_real_data`,
+  etc.) skip gracefully with a printed message when the resolved file is
+  missing rather than failing.

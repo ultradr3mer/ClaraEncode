@@ -11,8 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import numpy as np
 
 from claraenc.ReversibleSort import MergeSortRecord, ReversibleSort, reverse
+from claraenc.sandbox_paths import sandbox_path
 
-REAL = Path("F:\\source\\sandbox314\\modelCompression\\bins\\model.layers.0.input_layernorm.weight.bin")
+REAL = sandbox_path("bins", "model.layers.0.input_layernorm.weight.bin")
 
 
 def test_edge_sizes():

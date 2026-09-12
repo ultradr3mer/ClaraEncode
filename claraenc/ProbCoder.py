@@ -11,6 +11,7 @@ from clarautils import get_bits, Bitty, get_type_for_bit_count, get_as_unsigned,
 from clarautils.commonEncoding import get_bit_flags, normalize_flags
 
 from claraenc.spread_set_generator import get_spread_set_simple
+from claraenc.sandbox_paths import sandbox_path
 
 
 def transformationsmatrix(x, y):
@@ -74,7 +75,7 @@ def random_model(x):
 
 
 if __name__ == "__main__":
-    base = Path("F:\\source\\sandbox314\\modelCompression\\bins")
+    base = sandbox_path("bins")
 
     for path in base.glob("model.layers.0.input_layernorm.weight.bin"):
         with open(path, "rb") as f:

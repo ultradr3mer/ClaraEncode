@@ -19,6 +19,7 @@ import numpy as np
 from claraenc.Huffman import HuffmanCoder
 from claraenc.FlipSort import prepare_uint16, SortedFlippedAry, fmt_probs, print_probs, \
     fmt_prob_bars, print_prob_bars
+from claraenc.sandbox_paths import sandbox_path
 
 
 def prepare(values):
@@ -57,7 +58,7 @@ def test_all_defined():
 
 
 def test_real_data():
-    path = Path("/home/deck/PycharmProjects/python-sandbox/modelCompression/bins/model.layers.0.input_layernorm.weight.bin")
+    path = sandbox_path("bins", "model.layers.0.input_layernorm.weight.bin")
     if not path.exists():
         print("test_real_data: SKIPPED (bin file missing)")
         return

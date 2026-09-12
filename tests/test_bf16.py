@@ -15,6 +15,7 @@ from clarautils import Bitty
 
 from backup.bf16_v0 import bf16_parts, bf16_to_f32, read_bf16
 from claraenc.bf16_bitty import bf16_to_f32 as bf16_to_f32_bitty
+from claraenc.sandbox_paths import sandbox_path
 
 
 def bitmask(length):
@@ -93,7 +94,7 @@ def test_to_f32_normals_match_manual_formula():
 
 
 def test_real_data():
-    path = Path(r"F:\source\sandbox314\modelCompression\data\model.embed_tokens.weight.bin")
+    path = sandbox_path("data", "model.embed_tokens.weight.bin")
     values = np.asarray(read_bf16(path, 1024))
     assert len(values) == 1024
     assert np.array_equal(bf16_to_f32(values),

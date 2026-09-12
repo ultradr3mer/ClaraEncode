@@ -13,6 +13,7 @@ from clarautils import Bitty, NBitArray, NBitAryOnly, get_number, get_bitmask, g
 
 from claraenc.ReversibleSort import MergeSortRecord, ReversibleSort
 from claraenc.bf16_bitty import BF16_SEM_SLICES
+from claraenc.sandbox_paths import sandbox_path
 
 def get_between_01(vals: np.ndarray) -> np.ndarray:
     return vals[np.where(((vals > 0) & (vals < 1)))]
@@ -197,7 +198,7 @@ def prepare_uint32(buffer: bytes) -> SortedFlippedAry:
 
 
 if __name__ == "__main__":
-    base = Path("/home/deck/PycharmProjects/python-sandbox/modelCompression/bins")
+    base = sandbox_path("bins")
 
     # for i in range(1):
     for path in base.glob("model.layers.0.input_layernorm.weight.bin"):

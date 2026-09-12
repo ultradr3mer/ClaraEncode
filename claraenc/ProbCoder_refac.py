@@ -2,6 +2,8 @@ from itertools import permutations, islice, combinations
 from pathlib import Path
 
 import numpy as np
+
+from claraenc.sandbox_paths import sandbox_path
 from clarautils import get_bits
 
 
@@ -216,7 +218,7 @@ def random_model(x):
 
 
 if __name__ == "__main__":
-    base = Path("F:\\source\\sandbox314\\modelCompression\\bins")
+    base = sandbox_path("bins")
 
     for path in base.glob("model.layers.0.input_layernorm.weight.bin"):
         with open(path, "rb") as f:
