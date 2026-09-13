@@ -79,21 +79,27 @@ class MeanChange(NamedTuple):
 
 
 def get_mean_change(ary: NBitArray, b_original: List[int] | None = None,
-                    verbose: bool = True) -> MeanChange:
+                    verbose: bool = True, n_bits: int | None = None) -> MeanChange:
     """greedy |dP| bit ordering: the bit with the highest expected change
     of the other bits' means gets idx 0, the items are partitioned by it,
     and with the per-group means as the new reference the next bit is
     picked the same way — repeated until all bits are ordered. A
     candidate's gain is summed over all current groups, share-weighted
     by subgroup size over all items. b_original seeds already-decided
-    leading bits. change holds each bit's |dP| at pick time; prob_key /
-    same_order compare the pick order against the plain P(B=1) sort.
-    verbose prints per pick how the partition doubles: each new group's
-    mean diff vs its parent group (path label + group size + |dP| bars
-    over the remaining bits, cols legend in the step line)."""
+    leading bits (count toward n_bits); n_bits stops the greedy after
+    that many drawn bits (None = all). change holds each bit's |dP| at
+    pick time; prob_key / same_order compare the drawn prefix against
+    the plain P(B=1) sort's prefix. verbose prints per pick how the
+    partition doubles: each new group's mean diff vs its parent group
+    (path label + group size + |dP| bars over the remaining bits, cols
+    legend in the step line)."""
     item_count = ary.get_item_count()
     bit_count = ary.get_bit_count()
     b_original = list(b_original) if b_original else []
+    if n_bits is None:
+        n_bits = bit_count
+    if n_bits < len(b_original):
+        raise Exception("n_bits cannot be smaller than b_original")
     means = ary.get_bitwise_mean(axis=0)
     gains = np.zeros(bit_count, np.float32)
     order: List[int] = []
@@ -114,7 +120,7 @@ def get_mean_change(ary: NBitArray, b_original: List[int] | None = None,
         order.append(b)
         remaining.remove(b)
 
-    while remaining:
+    while remaining and len(order) < n_bits:
         cell_data = [(cell, cell.get_item_count(), cell.get_bitwise_mean(axis=0))
                      for cell in cells]
         active = [(cell, cmean) for cell, n, cmean in cell_data if n > 1]
@@ -152,13 +158,13 @@ def get_mean_change(ary: NBitArray, b_original: List[int] | None = None,
 
     prob_key = np.argsort(means, kind="stable")
     change_key = np.array(order, dtype=np.intp)
-    same_order = bool(np.array_equal(prob_key, change_key))
+    same_order = bool(np.array_equal(prob_key[:len(order)], change_key))
     print("Per bit: P(B=1) / |dP| at pick time:")
     print_prob_bars(np.array((means, gains)))
     print("greedy |dP| order:", change_key)
     print("same order as a P(B=1) sort:", same_order)
     if not same_order:
-        print(" P1 :", prob_key)
+        print(" P1 :", prob_key[:len(order)])
     return MeanChange(gains, prob_key, change_key, same_order)
 
 
