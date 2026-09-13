@@ -93,6 +93,7 @@ def get_mean_change(ary: NBitArray, b_original: List[int] | None = None,
     partition doubles: each new group's mean diff vs its parent group
     (path label + group size + |dP| bars over the remaining bits, cols
     legend in the step line)."""
+    ary = Bitty(ary)
     item_count = ary.get_item_count()
     bit_count = ary.get_bit_count()
     b_original = list(b_original) if b_original else []
@@ -290,8 +291,8 @@ def prepare_uint32(buffer: bytes) -> SortedFlippedAry:
     if not (step1.get_ary() == x).all():
         raise Exception("Could not reconstruct the original aray")
 
-    get_mean_change(step1.get_internal())
-
+    bits_to_draw = get_mean_change(step1.get_internal(), n_bits = 4)
+    print(bits_to_draw)
     # bitty = Bitty(step1.get_internal())
     # groups = bitty.group_by_bit(slice(-4,None))
     #
