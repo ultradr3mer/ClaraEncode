@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import NamedTuple, Tuple
+from typing import NamedTuple, Tuple, List
 
 import numpy as np
 import numpy.typing as npt
@@ -78,25 +78,28 @@ class MeanChange(NamedTuple):
     same_order: bool
 
 
-def get_mean_change(ary: NBitArray) -> MeanChange:
+def get_mean_change(ary: NBitArray, b_original: List[int]) -> MeanChange:
     """|dP| per bit: expected absolute change of the OTHER bits' means
     when bit i becomes known (items grouped by bit i, share-weighted by
     group size; bit i itself is excluded — the group views drop it).
     prob_key is the P(B=1) sort of ary, change_key the |dP| sort;
     same_order tells whether the bits would be ordered differently."""
     bitty = Bitty(ary)
-    bit_count = bitty.get_bit_count()
+    bit_count_remaining = bitty.get_bit_count()-len(b_original)
     item_count = bitty.get_item_count()
-    bits = range(bit_count)
-    original_means = bitty.get_bitwise_mean(axis=0)
-    diffs = np.zeros(bit_count, np.float32)
-    for i in bits:
-        other_means = np.delete(original_means, i)
-        diff_per_group = [np.abs(g.get_bitwise_mean(axis=0) - other_means)
-                          * g.get_item_count() / item_count for k, g in bitty.group_by_bit(i).items()]
-        print(f"If Bit {i} is 0/1:")
-        print_prob_bars(np.array(diff_per_group)*10)
-        diffs[i] = np.sum(diff_per_group)
+    bits = range(bit_count_remaining)
+    for b_i in b_original:
+        for k_origin, g_origin in bitty.group_by_bit(b_i).items():
+             original_means = bitty.get_bitwise_mean(axis=0)
+             diffs = np.zeros(bit_count_remaining, np.float32)
+             local_i_count = g_origin.get_item_count()
+             for i in bits:
+                    other_means = np.delete(original_means, i)
+                    diff_per_group = [np.abs(g.get_bitwise_mean(axis=0) - other_means)
+                                      * g.get_item_count() / local_i_count for k, g in g_origin.group_by_bit(i).items()]
+                    print(f"If Bit {b_i} was {k_origin} and now Bit {i} is 0/1:")
+                    print_prob_bars(np.array(diff_per_group)*10)
+                    diffs[i] = np.sum(diff_per_group)
     prob_key = np.argsort(original_means, kind="stable")
     change_key = np.argsort(diffs, kind="stable")
     same_order = bool(np.array_equal(prob_key, change_key))
