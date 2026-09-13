@@ -133,10 +133,12 @@ def get_mean_change(ary: NBitArray, b_original: List[int] | None = None,
             for pi, cell, cmean in active:
                 other_means = np.delete(cmean, pos)
                 for k, sub in cell.group_by_bit(pos).items():
-                    delta = np.abs(sub.get_bitwise_mean(axis=0) - other_means)
+                    sub_means = sub.get_bitwise_mean(axis=0)
+                    delta = np.abs(sub_means - other_means)
                     total += delta.sum() * sub.get_item_count() / item_count
                     if verbose:
-                        groups.append((pi, k, delta, sub.get_item_count()))
+                        groups.append((pi, k, delta, sub.get_item_count(),
+                                       int((sub_means > 0.5).sum())))
             cand_gains[pos] = total
             if verbose:
                 sub_groups[pos] = groups
@@ -156,9 +158,9 @@ def get_mean_change(ary: NBitArray, b_original: List[int] | None = None,
         remaining.pop(best_pos)
         if verbose and cand_gains[best_pos] > 0:
             print("  cols:", remaining)
-            for pi, k, delta, n_sub in sub_groups[best_pos]:
+            for pi, k, delta, n_sub, n_over in sub_groups[best_pos]:
                 if (delta > 1e-12).any():
-                    print(f"  {old_paths[pi]}b{best}={k} (n={n_sub}):")
+                    print(f"  {old_paths[pi]}b{best}={k} (n={n_sub}, >0.5: {n_over}):")
                     print_prob_bars(delta * 10, lines=1)
 
     prob_key = np.argsort(means, kind="stable")
