@@ -204,12 +204,14 @@ class ValueSortStep(NamedTuple):
     value order, so apply/undo are exact inverses. Per group the rank
     assignment is the mean-minimizing bijection onto {0..m-1} (biggest
     counts get the smallest values), so the data mean can only shrink."""
-    positions: Tuple[Tuple[int, ...], ...]
-    tables: Tuple[np.ndarray, ...]
+    positions: Tuple[Tuple[int, ...], ...] ## WE DONT SAVE POS, THAT IS A CALCULATED VALUE
+    tables: Tuple[np.ndarray, ...] # IF WE SAVE BLOCK, FOR DEFAULT 4 NOTHING IS SAVED
+    # THE ValueSortStep class should be ABSTRACT ROW / COL DEPENDS ON ValueSortColStep or ValueSortRowStep
+
 
     @classmethod
     def build_from(cls, ary: NBitArray, block_size: int = 4,
-                   direction: Literal['col', 'row'] = 'col') -> "ValueSortStep":
+                   direction: Literal['col', 'row'] = 'col') -> "ValueSortStep|ValueSortColStep|ValueSortRowStep":
         positions = get_group_positions(ary.get_bit_count(), block_size, direction)
         tables = []
         for pos in positions:
@@ -248,6 +250,20 @@ class ValueSortStep(NamedTuple):
                 out |= bit.astype(out.dtype)
         return NBitAryOnly(out, bit_count)
 
+class ValueSortColStep(ValueSortStep):
+    def __init__(self, ):
+        self.direction = direction
+    @classmethod
+    def build_from(cls, ary: NBitArray, block_size: int = 4) -> "ValueSortColStep":
+        return ValueSortStep.build_from(ary, block_size, 'col')
+
+
+class ValueSortRowStep(ValueSortStep):
+
+    @classmethod
+    def build_from(cls, ary: NBitArray, block_size: int = 4) -> "ValueSortRowStep":
+        step: ValueSortRowStep = ValueSortStep.build_from(ary, block_size, 'row')
+        return step
 
 def report_value_sort(ary: NBitArray, block_size: int = 4, reps: int = 3) -> None:
     """value-sort experiment: remap the group values by occurrence rank
@@ -291,10 +307,10 @@ class BitPrep(NamedTuple):
     instead of a mask."""
     ary: NBitArray
     bits: List[int]
-    steps: Tuple[FlipStep | SortStep | TrimStep, ...] = ()
+    steps: Tuple[FlipStep | TrimStep | ValueSortStep, ...] = ()
 
     def sorted_bits(self) -> "BitPrep":
-        step = SortStep.build_from(self.ary)
+        step = ValueSortStep.build_from(self.ary)
         key = step.record.to_argsort()
         return BitPrep(step.apply(self.ary),
                        [self.bits[int(i)] for i in key],
