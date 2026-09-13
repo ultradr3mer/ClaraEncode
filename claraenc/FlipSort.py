@@ -76,10 +76,12 @@ class MeanChange(NamedTuple):
     prob_key: np.ndarray
     change_key: np.ndarray
     same_order: bool
+    break_fired: bool = False
 
 
 def get_mean_change(ary: NBitArray, b_original: List[int] | None = None,
-                    verbose: bool = True, n_bits: int | None = None) -> MeanChange:
+                    verbose: bool = True, n_bits: int | None = None,
+                    break_on_n_flips: int | None = None) -> MeanChange:
     """greedy |dP| bit ordering: the bit with the highest expected change
     of the other bits' means gets idx 0, the items are partitioned by it,
     and with the per-group means as the new reference the next bit is
@@ -87,12 +89,16 @@ def get_mean_change(ary: NBitArray, b_original: List[int] | None = None,
     candidate's gain is summed over all current groups, share-weighted
     by subgroup size over all items. b_original seeds already-decided
     leading bits (count toward n_bits); n_bits stops the greedy after
-    that many drawn bits (None = all). change holds each bit's |dP| at
-    pick time; prob_key / same_order compare the drawn prefix against
-    the plain P(B=1) sort's prefix. verbose prints per pick how the
-    partition doubles: each new group's mean diff vs its parent group
-    (path label + group size + |dP| bars over the remaining bits, cols
-    legend in the step line)."""
+    that many drawn bits (None = all). break_on_n_flips stops the greedy
+    as soon as a partition group has more than that many majority-1
+    bits (P(B=1) > .5) among its remaining bits (break_fired), or when
+    no candidate changes anything anymore (dead end, no break).
+    change holds each bit's |dP| at pick time; prob_key / same_order
+    compare the drawn prefix against the plain P(B=1) sort's prefix.
+    verbose prints per pick how the partition doubles: each new group's
+    mean diff vs its parent group (path label + group size + count of
+    majority-1 bits + |dP| bars over the remaining bits, cols legend in
+    the step line)."""
     ary = Bitty(ary)
     item_count = ary.get_item_count()
     bit_count = ary.get_bit_count()
@@ -105,6 +111,7 @@ def get_mean_change(ary: NBitArray, b_original: List[int] | None = None,
     gains = np.zeros(bit_count, np.float32)
     order: List[int] = []
     remaining = list(range(bit_count))
+    break_fired = False
 
     cells: List[NBitArray] = [ary]
     paths: List[str] = [""]
@@ -121,9 +128,10 @@ def get_mean_change(ary: NBitArray, b_original: List[int] | None = None,
         order.append(b)
         remaining.remove(b)
 
+    cell_data = [(cell, cell.get_item_count(), cell.get_bitwise_mean(axis=0))
+                 for cell in cells]
+
     while remaining and len(order) < n_bits:
-        cell_data = [(cell, cell.get_item_count(), cell.get_bitwise_mean(axis=0))
-                     for cell in cells]
         active = [(pi, cell, cmean) for pi, (cell, n, cmean) in enumerate(cell_data) if n > 1]
         cand_gains = np.zeros(len(remaining))
         sub_groups = {} if verbose else None
@@ -142,11 +150,14 @@ def get_mean_change(ary: NBitArray, b_original: List[int] | None = None,
             cand_gains[pos] = total
             if verbose:
                 sub_groups[pos] = groups
+        if break_on_n_flips is not None and cand_gains.max() == 0:
+            break
         best_pos = int(np.argmax(cand_gains))
         best = remaining[best_pos]
         gains[best] = cand_gains[best_pos]
         order.append(best)
-        print(f"step {len(order)}: bit {best} |dP| {cand_gains[best_pos]:.3f}")
+        if verbose:
+            print(f"step {len(order)}: bit {best} |dP| {cand_gains[best_pos]:.3f}")
 
         old_paths = paths
         new_cells, new_paths = [], []
@@ -154,7 +165,6 @@ def get_mean_change(ary: NBitArray, b_original: List[int] | None = None,
             for k, sub in cell.group_by_bit(best_pos).items():
                 new_cells.append(sub)
                 new_paths.append(paths[pi] + f"b{best}={k} ")
-        cells, paths = new_cells, new_paths
         remaining.pop(best_pos)
         if verbose and cand_gains[best_pos] > 0:
             print("  cols:", remaining)
@@ -162,17 +172,156 @@ def get_mean_change(ary: NBitArray, b_original: List[int] | None = None,
                 if (delta > 1e-12).any():
                     print(f"  {old_paths[pi]}b{best}={k} (n={n_sub}, >0.5: {n_over}):")
                     print_prob_bars(delta * 10, lines=1)
+        cell_data = [(sub, sub.get_item_count(), sub.get_bitwise_mean(axis=0))
+                     for sub in new_cells]
+        cells, paths = new_cells, new_paths
+        if break_on_n_flips is not None:
+            if any(int((cmean > 0.5).sum()) > break_on_n_flips
+                   for _, n, cmean in cell_data):
+                break_fired = True
+                break
 
     prob_key = np.argsort(means, kind="stable")
     change_key = np.array(order, dtype=np.intp)
     same_order = bool(np.array_equal(prob_key[:len(order)], change_key))
-    print("Per bit: P(B=1) / |dP| at pick time:")
-    print_prob_bars(np.array((means, gains)))
-    print("greedy |dP| order:", change_key)
-    print("same order as a P(B=1) sort:", same_order)
-    if not same_order:
-        print(" P1 :", prob_key[:len(order)])
-    return MeanChange(gains, prob_key, change_key, same_order)
+    if verbose:
+        print("Per bit: P(B=1) / |dP| at pick time:")
+        print_prob_bars(np.array((means, gains)))
+        print("greedy |dP| order:", change_key)
+        print("same order as a P(B=1) sort:", same_order)
+        if not same_order:
+            print(" P1 :", prob_key[:len(order)])
+    return MeanChange(gains, prob_key, change_key, same_order, break_fired)
+
+
+class FlipStep(NamedTuple):
+    """majority-1 bits (P(B=1) > .5) flipped so the majority is 0; the
+    mask is packed over the step input's bit axis (MSB-first). Undo ==
+    apply, flipping is an involution."""
+    mask: CommonNBitSc
+
+    @classmethod
+    def build_from(cls, ary: NBitArray, means: np.ndarray | None = None) -> "FlipStep":
+        if means is None:
+            means = ary.get_bitwise_mean(axis=0)
+        return cls(get_number(np.round(means).astype(np.uint8)))
+
+    def apply(self, ary: NBitArray) -> NBitArray:
+        bit_count = ary.get_bit_count()
+        data = ary.get_array()
+        mask = np.full_like(data, self.mask.value)
+        return NBitAryOnly((data ^ mask), bit_count)
+
+    def undo(self, ary: NBitArray) -> NBitArray:
+        return self.apply(ary)
+
+
+class SortStep(NamedTuple):
+    """bit positions sorted by ascending bitwise mean; the record replays
+    the permutation on bit selections and inverts it."""
+    record: MergeSortRecord
+
+    @classmethod
+    def build_from(cls, ary: NBitArray, means: np.ndarray | None = None) -> "SortStep":
+        if means is None:
+            means = ary.get_bitwise_mean(axis=0)
+        return cls(ReversibleSort.arg_merge_sort(means))
+
+    def apply(self, ary: NBitArray) -> NBitArray:
+        return ary.b[self.record.to_argsort()]
+
+    def undo(self, ary: NBitArray) -> NBitArray:
+        return ary.b[self.record.get_reversed().to_argsort()]
+
+
+class BitPrep(NamedTuple):
+    """stackable prepare steps over one bit axis: the current data, the
+    global position of every local bit (MSB-first local order) and the
+    steps applied so far. flipped() / sorted_bits() stack freely:
+    flip-sort, sort-flip, only flip, only sort."""
+    ary: NBitArray
+    bits: List[int]
+    steps: Tuple[FlipStep | SortStep, ...] = ()
+
+    def flipped(self) -> "BitPrep":
+        step = FlipStep.build_from(self.ary)
+        return BitPrep(step.apply(self.ary), self.bits, self.steps + (step,))
+
+    def sorted_bits(self) -> "BitPrep":
+        step = SortStep.build_from(self.ary)
+        key = step.record.to_argsort()
+        return BitPrep(step.apply(self.ary),
+                       [self.bits[int(i)] for i in key],
+                       self.steps + (step,))
+
+    def undo_all(self) -> NBitArray:
+        ary = self.ary
+        for step in reversed(self.steps):
+            ary = step.undo(ary)
+        return ary
+
+
+class BitClass(NamedTuple):
+    """one class of a level: the items sharing the drawn-bit pattern
+    (label MSB = first drawn bit), the drawn bits removed from the data.
+    steps holds what was applied to the class data (FlipStep + SortStep
+    for turned classes, a single 0-mask FlipStep otherwise); bits maps
+    the class' local bit axis to global positions; child is the next
+    level (None = leaf)."""
+    label: int
+    ary: NBitArray
+    bits: List[int]
+    steps: Tuple[FlipStep | SortStep, ...]
+    child: "ClassSplit | None"
+
+
+class ClassSplit(NamedTuple):
+    """one process level: the globally drawn bits (draw order = label
+    MSB order) and their classes."""
+    drawn: Tuple[int, ...]
+    classes: Tuple[BitClass, ...]
+
+
+def build_classes(ary: NBitArray, bits: List[int], break_on_n_flips: int = 2,
+                  verbose: bool = True, _depth: int = 0) -> ClassSplit | None:
+    """recursive flip-sort process: draw bits with get_mean_change until
+    a group has more than break_on_n_flips majority-1 bits among its
+    remaining bits (break) or nothing changes anymore (leaf). The drawn
+    bits define the classes (one group_by_bit level: label MSB = first
+    drawn, drawn bits removed from the class data). Classes with more
+    than break_on_n_flips majority-1 bits become flip+sorted (steps
+    recorded), all others record a 0 flip mask. Recurses into every
+    class; bits maps the local bit axis of ary to global positions."""
+    ind = "  " * _depth
+    if ary.get_bit_count() == 0:
+        return None
+    mc = get_mean_change(ary, verbose=False, break_on_n_flips=break_on_n_flips)
+    if len(mc.change_key) == 0:
+        if verbose:
+            print(f"{ind}leaf: {ary.get_item_count()} items, {ary.get_bit_count()} bits left, nothing turns")
+        return None
+    drawn_local = [int(b) for b in mc.change_key]
+    drawn_global = tuple(bits[p] for p in drawn_local)
+    child_bits = [g for g in bits if g not in drawn_global]
+    if verbose:
+        print(f"{ind}draw {len(drawn_local)} bits (global {list(drawn_global)}), "
+              f"{'break: group turned' if mc.break_fired else 'dead end'}")
+    classes = []
+    for label, g in ary.group_by_bit(drawn_local).items():
+        n_items = g.get_item_count()
+        turned = int((g.get_bitwise_mean(axis=0) > 0.5).sum())
+        if turned > break_on_n_flips:
+            prep = BitPrep(g, child_bits).flipped().sorted_bits()
+            n_flipped = int(np.asarray(get_bits(prep.steps[0].mask)).sum())
+            if verbose:
+                print(f"{ind} class {int(label)}: n={n_items}, >0.5: {turned} -> flip {n_flipped} bits + sort")
+        else:
+            prep = BitPrep(g, child_bits, (FlipStep(get_number(np.zeros(g.get_bit_count(), np.uint8))),))
+            if verbose:
+                print(f"{ind} class {int(label)}: n={n_items}, >0.5: {turned} -> mask 0")
+        child = build_classes(prep.ary, prep.bits, break_on_n_flips, verbose, _depth + 1)
+        classes.append(BitClass(int(label), prep.ary, prep.bits, prep.steps, child))
+    return ClassSplit(drawn_global, tuple(classes))
 
 
 class SortedFlippedAry(NamedTuple): # Die Bits sind sortiert, nicht die items
@@ -195,10 +344,7 @@ class SortedFlippedAry(NamedTuple): # Die Bits sind sortiert, nicht die items
 
     @classmethod
     def flip_data_ary(cls, ary: NBitArray, mask: CommonNBitSc) -> NBitArray:
-        bit_count = ary.get_bit_count()
-        ary = ary.get_array()
-        mask = np.full_like(ary, mask.value)
-        return NBitAryOnly((ary ^ mask), bit_count)
+        return FlipStep(mask).apply(ary)
 
     @classmethod
     def build_from(cls, ary: NBitArray) -> SortedFlippedAry:
@@ -214,10 +360,11 @@ class SortedFlippedAry(NamedTuple): # Die Bits sind sortiert, nicht die items
         print("P(B=1) / Flip / BER   (BER = P(bit != most common value)):")
         print_prob_bars(np.array((original_means, flip_mask, flipped_means)))
         print("Flips:", flip_mask, "packed:", flip_packed)
-        sort_record = ReversibleSort.arg_merge_sort(flipped_means)
-        sort_idx = sort_record.to_argsort()
+        sort_step = SortStep.build_from(flipped_data, flipped_means)
+        sort_record = sort_step.record
+        sort_idx = sort_step.record.to_argsort()
 
-        sorted_data = flipped_data.b[sort_idx]
+        sorted_data = sort_step.apply(flipped_data)
 
         idx_bytes = bit_count * np.dtype(get_type_for_scalar(bit_count)).itemsize
         print("Sort memory: argsort idx", idx_bytes, "B vs record",
@@ -302,7 +449,7 @@ def prepare_uint32(buffer: bytes) -> SortedFlippedAry:
     #     print(k)
     #     print_prob_bars(g.get_bitwise_mean(0), lines=1)
     #
-    # return step1
+    return step1
 
 
 
@@ -316,6 +463,8 @@ if __name__ == "__main__":
         name = path.name
 
         sf = prepare_uint32(buffer)
+
+        split = build_classes(sf.get_internal(), [int(b) for b in sf.bit_key])
 
 
 
