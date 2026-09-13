@@ -177,6 +177,7 @@ class TrimStep(NamedTuple):
         return ary
 
 
+# noinspection bad-argument-type
 def get_group_positions(bit_count: int, block_size: int,
                         direction: Literal['col', 'row', 'diag'],
                         slope: Tuple[int, int] = (1, 2), wrap_slope=False) -> List[Tuple[int, ...]]:
@@ -200,23 +201,27 @@ def get_group_positions(bit_count: int, block_size: int,
         if ratio != right/up:
             raise Exception(f"for now only divisor") #TODO was ist das gegentiel von multiples, das ist erlaubt
         group_pos = []
-        block_count = bit_count // block_size
+        block_count = int(np.ceil(bit_count / block_size))
         x_range = np.arange(block_count)
         slope = x_range // ratio
         lhs_pos = np.arange(block_size)
         y_pos = np.array(lhs_pos.reshape(-1, 1) + slope, dtype=np.uint8)
         x_pos = np.arange(block_count) + np.ones(block_size, dtype=np.uint8).reshape(-1, 1)
-        base_grid = np.stack((x_pos, y_pos), axis=2, dtype=np.dtype([('x',np.uint8),('y',np.uint8)]))
-        get_slice_from_diff
+        base_grid = np.stack((x_pos, y_pos), axis=2).astype(np.uint8) #.copy().view(dtype=np.dtype([('x',np.uint8),('y',np.uint8)])).reshape((4,8))
         for group in base_grid:
             g_y = group[:,1]
-            mask = g_y >= block_size
-            if not wrap_slope and mask.any():
+            out_mask = g_y >= block_size
+            if not out_mask.any():
                 group_pos.append(tuple(g_y))
+            elif wrap_slope:
+                group_pos.append(tuple(g_y % 4))
             else:
-                group_pos.append(tuple(g_y[np.where(mask == 1)]))
-                group_pos.append(tuple(g_y[np.where(mask == 0)]))
-        return group_pos
+                group_pos.append(tuple(g_y[np.where(out_mask)] % 4))
+                group_pos.append(tuple(g_y[np.where(~out_mask)] % 4))
+        group_idx = [range(b * block_size, (b+1) * block_size)
+                              for b in range(block_count)]
+        return [tuple(group_idx[item_bit_idx])
+                for r in group_pos for item_bit_idx in r]
     raise Exception(f"unknown direction {direction!r} (col, row or diag)")
 
 
