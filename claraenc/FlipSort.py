@@ -123,37 +123,41 @@ def get_mean_change(ary: NBitArray, b_original: List[int] | None = None,
     while remaining and len(order) < n_bits:
         cell_data = [(cell, cell.get_item_count(), cell.get_bitwise_mean(axis=0))
                      for cell in cells]
-        active = [(cell, cmean) for cell, n, cmean in cell_data if n > 1]
+        active = [(pi, cell, cmean) for pi, (cell, n, cmean) in enumerate(cell_data) if n > 1]
         cand_gains = np.zeros(len(remaining))
+        sub_groups = {} if verbose else None
         for pos in range(len(remaining)):
             total = 0.0
-            for cell, cmean in active:
+            groups = []
+            for pi, cell, cmean in active:
                 other_means = np.delete(cmean, pos)
                 for k, sub in cell.group_by_bit(pos).items():
                     delta = np.abs(sub.get_bitwise_mean(axis=0) - other_means)
                     total += delta.sum() * sub.get_item_count() / item_count
+                    if verbose:
+                        groups.append((pi, k, delta, sub.get_item_count()))
             cand_gains[pos] = total
+            if verbose:
+                sub_groups[pos] = groups
         best_pos = int(np.argmax(cand_gains))
         best = remaining[best_pos]
         gains[best] = cand_gains[best_pos]
         order.append(best)
         print(f"step {len(order)}: bit {best} |dP| {cand_gains[best_pos]:.3f}")
 
-        new_cells, new_paths, parent_of = [], [], []
+        old_paths = paths
+        new_cells, new_paths = [], []
         for pi, (cell, n, cmean) in enumerate(cell_data):
             for k, sub in cell.group_by_bit(best_pos).items():
                 new_cells.append(sub)
                 new_paths.append(paths[pi] + f"b{best}={k} ")
-                parent_of.append(pi)
         cells, paths = new_cells, new_paths
         remaining.pop(best_pos)
         if verbose and cand_gains[best_pos] > 0:
             print("  cols:", remaining)
-            for j, sub in enumerate(new_cells):
-                delta = np.abs(sub.get_bitwise_mean(axis=0)
-                               - np.delete(cell_data[parent_of[j]][2], best_pos))
+            for pi, k, delta, n_sub in sub_groups[best_pos]:
                 if (delta > 1e-12).any():
-                    print(f"  {new_paths[j]}(n={sub.get_item_count()}):")
+                    print(f"  {old_paths[pi]}b{best}={k} (n={n_sub}):")
                     print_prob_bars(delta * 10, lines=1)
 
     prob_key = np.argsort(means, kind="stable")
