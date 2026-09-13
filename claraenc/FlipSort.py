@@ -91,77 +91,63 @@ def get_mean_change(ary: NBitArray, b_original: List[int] | None = None,
     verbose prints per pick how the partition doubles: each new group's
     mean diff vs its parent group (path label + group size + |dP| bars
     over the remaining bits, cols legend in the step line)."""
-    bits = np.asarray(ary.get_bitwise()).astype(np.uint8)
-    item_count, bit_count = bits.shape
+    item_count = ary.get_item_count()
+    bit_count = ary.get_bit_count()
     b_original = list(b_original) if b_original else []
-    means = bits.mean(axis=0)
+    means = ary.get_bitwise_mean(axis=0)
     gains = np.zeros(bit_count, np.float32)
     order: List[int] = []
     remaining = list(range(bit_count))
 
-    cell_id = np.zeros(item_count, dtype=np.intp)
-    n_cells = 1
+    cells: List[NBitArray] = [ary]
     paths: List[str] = [""]
     for b in b_original:
         if b not in remaining:
             raise Exception(f"b_original bit {b} is not a remaining bit of ary")
-        key = cell_id * 2 + bits[:, b]
-        uniq = np.unique(key)
-        remap = np.zeros(int(uniq.max()) + 1, dtype=np.intp)
-        remap[uniq] = np.arange(uniq.size)
-        cell_id = remap[key]
-        n_cells = int(uniq.size)
-        paths = [paths[u // 2] + f"b{b}={u % 2} " for u in uniq]
+        pos = remaining.index(b)
+        new_cells, new_paths = [], []
+        for cell, path in zip(cells, paths):
+            for k, sub in cell.group_by_bit(pos).items():
+                new_cells.append(sub)
+                new_paths.append(path + f"b{b}={k} ")
+        cells, paths = new_cells, new_paths
         order.append(b)
         remaining.remove(b)
 
-    rem_arr = np.array(remaining, dtype=np.intp)
-
-    def group_sums(keys, cols, n_keys):
-        sums = np.empty((n_keys, cols.size))
-        for c in range(cols.size):
-            sums[:, c] = np.bincount(keys, weights=bits[:, cols[c]], minlength=n_keys)
-        return sums
-
-    cell_counts = np.bincount(cell_id, minlength=n_cells)
-    cell_means = group_sums(cell_id, rem_arr, n_cells) / cell_counts[:, None]
-
     while remaining:
+        cell_data = [(cell, cell.get_item_count(), cell.get_bitwise_mean(axis=0))
+                     for cell in cells]
+        active = [(cell, cmean) for cell, n, cmean in cell_data if n > 1]
         cand_gains = np.zeros(len(remaining))
         for pos in range(len(remaining)):
-            key = cell_id * 2 + bits[:, rem_arr[pos]]
-            counts = np.bincount(key, minlength=2 * n_cells)
-            nz = np.flatnonzero(counts)
-            other_cols = np.delete(rem_arr, pos)
-            sub_means = group_sums(key, other_cols, 2 * n_cells)[nz] / counts[nz, None]
-            parent_rows = np.delete(cell_means[nz // 2], pos, axis=1)
-            delta = np.abs(sub_means - parent_rows)
-            cand_gains[pos] = np.sum(counts[nz] / item_count * delta.sum(axis=1))
+            total = 0.0
+            for cell, cmean in active:
+                other_means = np.delete(cmean, pos)
+                for k, sub in cell.group_by_bit(pos).items():
+                    delta = np.abs(sub.get_bitwise_mean(axis=0) - other_means)
+                    total += delta.sum() * sub.get_item_count() / item_count
+            cand_gains[pos] = total
         best_pos = int(np.argmax(cand_gains))
         best = remaining[best_pos]
         gains[best] = cand_gains[best_pos]
         order.append(best)
         print(f"step {len(order)}: bit {best} |dP| {cand_gains[best_pos]:.3f}")
 
-        key = cell_id * 2 + bits[:, rem_arr[best_pos]]
-        counts = np.bincount(key, minlength=2 * n_cells)
-        nz = np.flatnonzero(counts)
-        remap = np.zeros(2 * n_cells, dtype=np.intp)
-        remap[nz] = np.arange(nz.size)
-        cell_id = remap[key]
-        parents = nz // 2
-        old_cell_means = cell_means
-        paths = [paths[p] + f"b{best}={s % 2} " for p, s in zip(parents, nz)]
-        rem_arr = np.delete(rem_arr, best_pos)
-        cell_means = group_sums(cell_id, rem_arr, nz.size) / counts[nz, None]
-        n_cells = int(nz.size)
+        new_cells, new_paths, parent_of = [], [], []
+        for pi, (cell, n, cmean) in enumerate(cell_data):
+            for k, sub in cell.group_by_bit(best_pos).items():
+                new_cells.append(sub)
+                new_paths.append(paths[pi] + f"b{best}={k} ")
+                parent_of.append(pi)
+        cells, paths = new_cells, new_paths
         remaining.pop(best_pos)
         if verbose and cand_gains[best_pos] > 0:
-            print("  cols:", [int(c) for c in rem_arr])
-            for j, s in enumerate(nz):
-                delta = np.abs(cell_means[j] - np.delete(old_cell_means[parents[j]], best_pos))
+            print("  cols:", remaining)
+            for j, sub in enumerate(new_cells):
+                delta = np.abs(sub.get_bitwise_mean(axis=0)
+                               - np.delete(cell_data[parent_of[j]][2], best_pos))
                 if (delta > 1e-12).any():
-                    print(f"  {paths[j]}(n={counts[s]}):")
+                    print(f"  {new_paths[j]}(n={sub.get_item_count()}):")
                     print_prob_bars(delta * 10, lines=1)
 
     prob_key = np.argsort(means, kind="stable")
