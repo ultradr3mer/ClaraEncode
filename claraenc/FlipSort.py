@@ -515,9 +515,9 @@ if __name__ == "__main__":
             print("result: root is a leaf")
         else:
             levels, leaves, depth, flipped, avg_d, leaf_sum = split.stats
-            print(f"result: {levels} levels, {leaves} leaves, depth {depth} "
-                  f"(avg leaf {avg_d:.1f}), {flipped} flip+sorted classes, "
-                  f"leaf sum {leaf_sum:,}")
+            print(f"result: {levels} levels, {leaves} leaves, "
+                  f"max depth {depth}, avg depth {avg_d:.1f}, "
+                  f"{flipped} flip+sorted classes, leaf sum {leaf_sum:,}")
 
 
 
