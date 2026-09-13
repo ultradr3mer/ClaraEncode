@@ -175,6 +175,112 @@ class TrimStep(NamedTuple):
         return ary
 
 
+def get_group_positions(bit_count: int, block_size: int,
+                        direction: Literal['col', 'row']) -> List[Tuple[int, ...]]:
+    """local bit positions per value group: 'col' = contiguous blocks of
+    block_size bits (bucket = idx // block_size), 'row' = the
+    same-offset positions of every block — the group stride (bucket =
+    idx % block_size). First position = highest bit of the group value."""
+    if direction == 'col':
+        return [tuple(range(r, min(r + block_size, bit_count)))
+                for r in range(0, bit_count, block_size)]
+    if direction == 'row':
+        return [tuple(range(i, bit_count, block_size))
+                for i in range(min(block_size, bit_count))]
+    raise Exception(f"unknown direction {direction!r} (col or row)")
+
+
+class ValueSortStep(NamedTuple):
+    """value-space remap per group of bit positions, sorted by
+    occurrence: every group's occurring values are renumbered by
+    frequency rank (most frequent -> 0, ties by value), so the used
+    values form a hole-free low range — the mass moves down where
+    sort/flip/trim can bite and the group's top bits tend to turn
+    constant 0 ("in bit shorter"). 'col' groups contiguous blocks,
+    'row' the group stride (get_group_positions). positions holds each
+    group's local bit positions (first = highest bit of the group
+    value), tables one full permutation of the group's value space per
+    group (old -> new); unobserved values fill the remaining slots in
+    value order, so apply/undo are exact inverses. Per group the rank
+    assignment is the mean-minimizing bijection onto {0..m-1} (biggest
+    counts get the smallest values), so the data mean can only shrink."""
+    positions: Tuple[Tuple[int, ...], ...]
+    tables: Tuple[np.ndarray, ...]
+
+    @classmethod
+    def build_from(cls, ary: NBitArray, block_size: int = 4,
+                   direction: Literal['col', 'row'] = 'col') -> "ValueSortStep":
+        positions = get_group_positions(ary.get_bit_count(), block_size, direction)
+        tables = []
+        for pos in positions:
+            k = len(pos)
+            if k > 16:
+                raise Exception(f"cannot tabulate a group of {k} bits (2^{k} values)")
+            uniq, counts = np.unique(ary.b[list(pos)].get_array(), return_counts=True)
+            order = np.lexsort((uniq, -counts))
+            ranks = np.empty(len(uniq), dtype=np.int64)
+            ranks[order] = np.arange(len(uniq))
+            table = np.arange(1 << k, dtype=np.int64)
+            table[uniq] = ranks
+            table[np.setdiff1d(np.arange(1 << k), uniq)] = np.arange(len(uniq), 1 << k)
+            tables.append(table)
+        return cls(tuple(positions), tuple(tables))
+
+    def apply(self, ary: NBitArray) -> NBitArray:
+        bit_count = ary.get_bit_count()
+        out = np.zeros_like(ary.get_array())
+        for pos, table in zip(self.positions, self.tables):
+            vals = table[ary.b[list(pos)].get_array()]
+            for j, p in enumerate(pos):
+                bit = (((vals >> (len(pos) - 1 - j)) & 1) << (bit_count - 1 - p))
+                out |= bit.astype(out.dtype)
+        return NBitAryOnly(out, bit_count)
+
+    def undo(self, ary: NBitArray) -> NBitArray:
+        bit_count = ary.get_bit_count()
+        out = np.zeros_like(ary.get_array())
+        for pos, table in zip(self.positions, self.tables):
+            inverse = np.empty_like(table)
+            inverse[table] = np.arange(len(table))
+            vals = inverse[ary.b[list(pos)].get_array()]
+            for j, p in enumerate(pos):
+                bit = (((vals >> (len(pos) - 1 - j)) & 1) << (bit_count - 1 - p))
+                out |= bit.astype(out.dtype)
+        return NBitAryOnly(out, bit_count)
+
+
+def report_value_sort(ary: NBitArray, block_size: int = 4, reps: int = 3) -> None:
+    """value-sort experiment: remap the group values by occurrence rank
+    (ValueSortStep) — col (blocks) alone, row (group stride) alone, then
+    both alternating for reps rounds — printing after every step the
+    data mean, the per-direction value density (distinct used values /
+    used span per group, averaged; 1.0 = hole-free range) and the bits
+    the groups would need for their used span."""
+    def state(a: NBitArray, tag: str) -> None:
+        parts = []
+        for direction in ('col', 'row'):
+            dens, needed, total = [], 0, 0
+            for pos in get_group_positions(a.get_bit_count(), block_size, direction):
+                uniq = np.unique(a.b[list(pos)].get_array())
+                span = int(uniq.max()) + 1
+                dens.append(len(uniq) / span)
+                total += len(pos)
+                needed += get_bit_count(span - 1) if span > 1 else 0
+            parts.append(f"{direction} dens {np.mean(dens):.2f} bits {needed}/{total}")
+        print(f"{tag:<16} mean {float(np.mean(a.get_array())):>14,.0f}   "
+              + "   ".join(parts))
+
+    cur = ary
+    state(cur, "baseline")
+    for direction in ('col', 'row'):
+        cur = ValueSortStep.build_from(cur, block_size, direction).apply(cur)
+        state(cur, f"+{direction} remap")
+    for rep in range(reps):
+        for direction in ('col', 'row'):
+            cur = ValueSortStep.build_from(cur, block_size, direction).apply(cur)
+            state(cur, f"round {rep + 1} +{direction}")
+
+
 class BitPrep(NamedTuple):
     """stackable prepare steps over one bit axis: the current data, the
     global position of every local bit (MSB-first local order) and the
@@ -453,6 +559,8 @@ if __name__ == "__main__":
                                                    expand=False)[0]
         print("index usage, row (block_size=1):", len(row_vals),
               "distinct values of", sf.get_internal().get_item_count(), "items")
+
+        report_value_sort(sf.get_internal())
 
         split = build_classes(sf.get_internal(), [int(b) for b in sf.bit_key],
                               target_leaf_items=64)
