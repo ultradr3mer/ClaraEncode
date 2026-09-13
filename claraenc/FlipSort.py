@@ -341,10 +341,13 @@ def build_classes(ary: NBitArray, bits: List[int], break_on_n_flips: int = 2,
         n_items = g.get_item_count()
         turned = int((g.get_bitwise_mean(axis=0) > 0.5).sum())
         if turned > break_on_n_flips:
-            prep = BitPrep(g, child_bits).flipped().sorted_bits()
-            n_flipped = int(np.asarray(get_bits(prep.steps[0].mask)).sum())
+            prep = BitPrep(g, child_bits).flipped()
+            flipped_global = [prep.bits[int(j)] for j in np.flatnonzero(
+                np.asarray(get_bits(prep.steps[0].mask)).astype(bool))]
+            prep = prep.sorted_bits()
             if verbose:
-                print(f"{ind} class {int(label)}: n={n_items}, >0.5: {turned} -> flip {n_flipped} bits + sort")
+                print(f"{ind} class {int(label)}: n={n_items}, >0.5: {turned} -> "
+                      f"{len(flipped_global)} flipped {flipped_global}")
         else:
             prep = BitPrep(g, child_bits, (FlipStep(get_number(np.zeros(g.get_bit_count(), np.uint8))),))
             if verbose:
