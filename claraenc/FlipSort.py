@@ -39,27 +39,31 @@ def print_probs(vals: npt.ArrayLike, prec: int = 2) -> str:
     return out
 
 
-def get_index_usage_for(data: NBitArray, block_size: int = 4, index_dir: Literal['col', 'row'] = 'col', expand = True):
-    groups_of_block_size = data.g(block_size) # new group function
-    values: List[NBitArray]
-    max_v: int
+def get_index_usage_for(data: NBitArray, block_size: int = 4,
+                        index_dir: Literal['col', 'row'] = 'col', expand=True):
+    """value usage histograms over the bit axis, blocked into block_size
+    bits (bucket = idx // block_size): 'col' reads every block group
+    (data.g) and counts its values; 'row' stacks bit i of every group
+    into one column word per item (view[:, i]) and counts those. expand
+    pads each histogram to the full value range (index = value) — pass
+    expand=False when the range explodes (block_size=1 'row' spans the
+    whole bit width)."""
+    groups = data.g(block_size)
     if index_dir == 'col':
-        values = [g.read() for g in groups_of_block_size]
-        max_v = 1 << values[0].get_bit_count()
+        values = [g.read() for g in groups]
     else:
-        values = [groups_of_block_size[:, i] for i in range(block_size)]
-        max_v = 1 << values[0].get_bit_count()
-
-    result = [np.unique(v, return_counts=True) for v in values]
+        values = [groups[:, i] for i in range(block_size)]
+    max_v = 1 << values[0].get_bit_count()
 
     def ex(i_c):
         i, c = i_c
-        full = np.arange(1 << values[0].get_bit_count())
+        full = np.arange(max_v)
         full[i] = c
         return full
+
+    result = [np.unique(v.get_array(), return_counts=True) for v in values]
     if expand:
         result = [ex(r) for r in result]
-
     return result
 
 
@@ -136,10 +140,6 @@ class SortStep(NamedTuple):
 
     @classmethod
     def build_from(cls, ary: NBitArray, means: np.ndarray | None = None) -> "SortStep":
-        test = get_index_usage_for(ary, 4, 'col')
-        print(test)
-        test2 = get_index_usage_for(ary, 1, 'row')
-        print(test2)
         if means is None:
             means = ary.get_bitwise_mean(axis=0)
         return cls(ReversibleSort.arg_merge_sort(means))
@@ -390,10 +390,6 @@ class SortedFlippedAry(NamedTuple): # Die Bits sind sortiert, nicht die items
         print("Mean:",o_mean,"sorted:",s_mean,"flipped",f_mean)
         print("Bitcount:", get_bit_count(int(o_mean)), "over:", get_bit_count(int(s_mean)), "to", get_bit_count(int(f_mean)))
 
-        slices_of_2 = get_slices_of_len(flipped_data, 2)
-        slices_of_4 = get_slices_of_len(flipped_data, 4)
-        # slices_of_8 = get_slices_of_len(flipped_data, 8)
-
         return SortedFlippedAry(flip_step.count, flipped_data, flipped_means, sort_step.record)
 
     def get_ary(self) -> NBitArray:
@@ -449,6 +445,14 @@ if __name__ == "__main__":
         name = path.name
 
         sf = prepare_uint32(buffer)
+
+        print("index usage, col (4-bit blocks):")
+        for u in get_index_usage_for(sf.get_internal(), 4, 'col'):
+            print(" ", u)
+        row_vals, row_counts = get_index_usage_for(sf.get_internal(), 1, 'row',
+                                                   expand=False)[0]
+        print("index usage, row (block_size=1):", len(row_vals),
+              "distinct values of", sf.get_internal().get_item_count(), "items")
 
         split = build_classes(sf.get_internal(), [int(b) for b in sf.bit_key],
                               target_leaf_items=64)
