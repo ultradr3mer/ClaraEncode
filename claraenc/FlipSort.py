@@ -57,7 +57,7 @@ def get_index_usage_for(data: NBitArray, block_size: int = 4,
 
     def ex(i_c):
         i, c = i_c
-        full = np.arange(max_v)
+        full = np.zeros(max_v, np.int64)
         full[i] = c
         return full
 
