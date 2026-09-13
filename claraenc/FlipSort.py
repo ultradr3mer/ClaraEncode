@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import NamedTuple, Tuple, List
+from typing import NamedTuple, Tuple, List, Literal, Any
 
 import numpy as np
 import numpy.typing as npt
@@ -39,9 +39,32 @@ def print_probs(vals: npt.ArrayLike, prec: int = 2) -> str:
     return out
 
 
-def get_slices_of_len(data: NBitArray, n: int = 1, step: int = 1):
-    return [np.unique(data.b[r:r+n].read(), return_counts=True) for r in range(0,32,n*step)]
+def get_index_usage_for(data: NBitArray, block_size: int = 4, index_dir: Literal['col', 'row'] = 'col', expand = True):
+    groups_of_block_size = data.g(block_size) # new group function
+    values: List[NBitArray]
+    max_v: int
+    if index_dir == 'col':
+        values = [g.read() for g in groups_of_block_size]
+        max_v = 1 << values[0].get_bit_count()
+    else:
+        values = [groups_of_block_size[:, i] for i in range(block_size)]
+        max_v = 1 << values[0].get_bit_count()
 
+    result = [np.unique(v, return_counts=True) for v in values]
+
+    def ex(i_c):
+        i, c = i_c
+        full = np.arange(1 << values[0].get_bit_count())
+        full[i] = c
+        return full
+    if expand:
+        result = [ex(r) for r in result]
+
+    return result
+
+
+# def get_slices_of_len(data: NBitArray, n: int = 1, step: int = 1):
+#     return np.array([np.unique(data.b[r:r+n].read(), return_counts=True) for s in range(step) for r in range(s,32,n*step)])
 
 def fmt_prob_bars(vals: npt.ArrayLike, lines: int = 1, blocks: str = " ▁▂▃▄▅▆▇█") -> str:
     """probs as bar chars, one val = one char column per line.
@@ -113,6 +136,10 @@ class SortStep(NamedTuple):
 
     @classmethod
     def build_from(cls, ary: NBitArray, means: np.ndarray | None = None) -> "SortStep":
+        test = get_index_usage_for(ary, 4, 'col')
+        print(test)
+        test2 = get_index_usage_for(ary, 1, 'row')
+        print(test2)
         if means is None:
             means = ary.get_bitwise_mean(axis=0)
         return cls(ReversibleSort.arg_merge_sort(means))
