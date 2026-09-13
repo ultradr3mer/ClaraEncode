@@ -1,9 +1,12 @@
 from pathlib import Path
+from math import gcd
 from typing import NamedTuple, Tuple, List, Literal, Any
 
 import numpy as np
 import numpy.typing as npt
 import sys
+
+from numpy.ma.core import shape
 
 if globals().get("__package__", "") in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -175,18 +178,46 @@ class TrimStep(NamedTuple):
 
 
 def get_group_positions(bit_count: int, block_size: int,
-                        direction: Literal['col', 'row']) -> List[Tuple[int, ...]]:
+                        direction: Literal['col', 'row', 'diag'],
+                        slope: Tuple[int, int] = (1, 2), wrap_slope=False) -> List[Tuple[int, ...]]:
     """local bit positions per value group: 'col' = contiguous blocks of
     block_size bits (bucket = idx // block_size), 'row' = the
     same-offset positions of every block — the group stride (bucket =
-    idx % block_size). First position = highest bit of the group value."""
+    idx % block_size), 'diag' = the wrapped diagonals of that grid —
+    the staggered rows, `slope` (up, right) columns right per one row
+    up (bucket = (right * row + up * col) % gcd(up * cols,
+    right * rows)); default slope = two right, one up.
+    First position = highest bit of the group value."""
     if direction == 'col':
         return [tuple(range(r, min(r + block_size, bit_count)))
                 for r in range(0, bit_count, block_size)]
     if direction == 'row':
         return [tuple(range(i, bit_count, block_size))
                 for i in range(min(block_size, bit_count))]
-    raise Exception(f"unknown direction {direction!r} (col or row)")
+    if direction == 'diag':
+        up, right = slope
+        ratio = right//up
+        if ratio != right/up:
+            raise Exception(f"for now only divisor") #TODO was ist das gegentiel von multiples, das ist erlaubt
+        group_pos = []
+        block_count = bit_count // block_size
+        x_range = np.arange(block_count)
+        slope = x_range // ratio
+        lhs_pos = np.arange(block_size)
+        y_pos = np.array(lhs_pos.reshape(-1, 1) + slope, dtype=np.uint8)
+        x_pos = np.arange(block_count) + np.ones(block_size, dtype=np.uint8).reshape(-1, 1)
+        base_grid = np.stack((x_pos, y_pos), axis=2, dtype=np.dtype([('x',np.uint8),('y',np.uint8)]))
+        get_slice_from_diff
+        for group in base_grid:
+            g_y = group[:,1]
+            mask = g_y >= block_size
+            if not wrap_slope and mask.any():
+                group_pos.append(tuple(g_y))
+            else:
+                group_pos.append(tuple(g_y[np.where(mask == 1)]))
+                group_pos.append(tuple(g_y[np.where(mask == 0)]))
+        return group_pos
+    raise Exception(f"unknown direction {direction!r} (col, row or diag)")
 
 
 class ValueSortStep(NamedTuple):
@@ -198,7 +229,12 @@ class ValueSortStep(NamedTuple):
     constant 0 ("in bit shorter"). The direction is abstract here:
     ValueSortColStep groups contiguous blocks of block_size bits
     (bucket = idx // block_size), ValueSortRowStep the group stride
-    (bucket = idx % block_size); the positions are calculated on demand
+    (bucket = idx % block_size), ValueSortDiagStep the wrapped
+    diagonals of the block grid — staggered rows, two columns right
+    per one row up — and ValueSortDiag11Step the same with the 45°
+    slope, one up one right (experiment only: with coprime grid sides
+    it degenerates to one huge group); slope (up, right) is the diag
+    stagger. The positions are calculated on demand
     (get_group_positions), not stored. records holds one MergeSortRecord
     per group — the occurrence argsort of the group's value space (key
     = -count; the stable merge ties on equal counts in value order), so
@@ -206,25 +242,55 @@ class ValueSortStep(NamedTuple):
     a dense 2^k table) and the record can be replayed or reversed on
     any payload — ReversibleSort can be taught more tricks on top.
     undo needs no reversed record: the argsort IS the inverse table
-    (rank -> old value). Per group the rank assignment is the
+    (rank -> old value). Unpriced, the rank assignment is the
     mean-minimizing bijection onto {0..m-1} (biggest counts get the
-    smallest values), so the data mean can only shrink."""
+    smallest values), so the data mean can only shrink. Priced
+    subclasses order the patterns by rarity cost instead — cost =
+    sum of 1 - P(bit=1) over the set bits: frequent values reuse the
+    bits that are already often 1 and the expensive rare bits stay 0,
+    two cheap bits beating one expensive one ([0,0,1] -> [1,1,0]);
+    the numeric mean is no longer guaranteed to shrink, the variation
+    concentrates instead."""
     block_size: int
     records: Tuple[MergeSortRecord, ...]
+
+    slope = (1, 2)
+    priced = False
 
     @classmethod
     def build_from(cls, ary: NBitArray, block_size: int = 4) -> "ValueSortStep":
         records = []
-        for pos in get_group_positions(ary.get_bit_count(), block_size, cls.direction):
+        for pos in get_group_positions(ary.get_bit_count(), block_size, cls.direction,
+                                       cls.slope):
             k = len(pos)
             if k > 16:
                 raise Exception(f"cannot tabulate a group of {k} bits (2^{k} values)")
-            counts = np.bincount(ary.b[list(pos)].get_array(), minlength=1 << k)
-            records.append(ReversibleSort.arg_merge_sort(-counts))
+            table = cls._build_table(ary.b[list(pos)].get_array(), k)
+            records.append(ReversibleSort.arg_merge_sort(table))
         return cls(block_size, tuple(records))
 
+    @classmethod
+    def _build_table(cls, vals: np.ndarray, k: int) -> np.ndarray:
+        """old -> new remap table for one group: the occurring values,
+        biggest counts first, get the cheapest patterns. Unpriced a
+        pattern costs its numeric value (the plain occurrence ranks);
+        priced it costs the summed rarity of its set bits."""
+        shifts = np.arange(k - 1, -1, -1)
+        uniq, counts = np.unique(vals, return_counts=True)
+        if cls.priced:
+            prices = 1.0 - ((vals[:, None] >> shifts) & 1).mean(axis=0)
+        else:
+            prices = 2.0 ** shifts
+        bits = (np.arange(1 << k)[:, None] >> shifts) & 1
+        pattern_order = np.lexsort((np.arange(1 << k), bits @ prices))
+        table = np.empty(1 << k, dtype=np.int64)
+        table[uniq[np.lexsort((uniq, -counts))]] = pattern_order[:len(uniq)]
+        table[np.setdiff1d(np.arange(1 << k), uniq)] = pattern_order[len(uniq):]
+        return table
+
     def get_positions(self, bit_count: int) -> List[Tuple[int, ...]]:
-        return get_group_positions(bit_count, self.block_size, self.direction)
+        return get_group_positions(bit_count, self.block_size, self.direction,
+                                   self.slope)
 
     @property
     def nbytes(self) -> int:
@@ -272,17 +338,54 @@ class ValueSortRowStep(ValueSortStep):
     direction = 'row'
 
 
+class ValueSortDiagStep(ValueSortStep):
+    """'diag' value sort: the wrapped diagonals of the block grid —
+    staggered rows, two columns right per one row up."""
+    direction = 'diag'
+
+
+class ValueSortDiag11Step(ValueSortStep):
+    """'diag' value sort with the 45° slope: one row up, one column
+    right. Experiment only — with coprime grid sides it degenerates
+    to a single huge group and trips the value space guard."""
+    direction = 'diag'
+    slope = (1, 1)
+
+
+class ValueSortColPricedStep(ValueSortColStep):
+    """'col' value sort with rarity-priced patterns: frequent values
+    get the patterns whose 1s sit on the bits that are already often
+    1, the expensive rare bits stay 0 — two cheap bits beat one
+    expensive one."""
+    priced = True
+
+
+class ValueSortRowPricedStep(ValueSortRowStep):
+    """'row' value sort with rarity-priced patterns, like
+    ValueSortColPricedStep over the group stride."""
+    priced = True
+
+
 def report_value_sort(ary: NBitArray, block_size: int = 4, reps: int = 3) -> None:
     """value-sort experiment: remap the group values by occurrence rank
-    (ValueSortColStep / ValueSortRowStep) — col (blocks) alone, row
-    (group stride) alone, then both alternating for reps rounds —
-    printing after every step the data mean, the per-direction value
-    density (distinct used values / used span per group, averaged;
-    1.0 = hole-free range), the bits the groups would need for their
-    used span, and the packed record size vs the dense remap tables."""
+    (ValueSortColStep / ValueSortRowStep / ValueSortDiagStep /
+    ValueSortDiag11Step) — each direction alone, then col/row,
+    col/row/diag and col/row/diag11 alternating for reps rounds —
+    printing after every step the data mean, the post-flip mass
+    sum(min(p, 1-p)) the suffix flip would leave over the bits, the
+    per-direction value densities, the packed record size vs dense
+    remap tables and the sorted bitwise P(B=1) profile — the shape
+    the position sort orders. A spread ramp `[▁▁▂▂▃▃▄▄]` keeps that
+    mass after the flip, a right-filled step `[    ▇▇▇▇]` flips almost
+    everything away — that is the shape to hunt for."""
+    def short(cls) -> str:
+        return cls.__name__.removeprefix("ValueSort").removesuffix("Step")
+
     def state(a: NBitArray, tag: str) -> None:
+        means = np.sort(a.get_bitwise_mean(axis=0))
+        mass = float(np.minimum(means, 1 - means).sum())
         parts = []
-        for direction in ('col', 'row'):
+        for direction in ('col', 'row', 'diag'):
             dens, needed, total = [], 0, 0
             for pos in get_group_positions(a.get_bit_count(), block_size, direction):
                 uniq = np.unique(a.b[list(pos)].get_array())
@@ -291,31 +394,42 @@ def report_value_sort(ary: NBitArray, block_size: int = 4, reps: int = 3) -> Non
                 total += len(pos)
                 needed += get_bit_count(span - 1) if span > 1 else 0
             parts.append(f"{direction} dens {np.mean(dens):.2f} bits {needed}/{total}")
-        print(f"{tag:<16} mean {float(np.mean(a.get_array())):>14,.0f}   "
-              + "   ".join(parts))
+        print(f"{tag:<22} mean {float(np.mean(a.get_array())):>13,.0f} "
+              f"flip mass {mass:5.2f}  " + "  ".join(parts))
+        print(f"{'':22}{fmt_prob_bars(means, lines=1)}")
 
     cur = ary
     state(cur, "baseline")
-    for step_cls in (ValueSortColStep, ValueSortRowStep):
+    for step_cls in (ValueSortColStep, ValueSortRowStep,
+                     ValueSortDiagStep, ValueSortDiag11Step):
         step = step_cls.build_from(cur, block_size)
         cur = step.apply(cur)
-        state(cur, f"+{step.direction} remap")
-        print(f"{'':16} records {step.nbytes:,} B packed vs dense tables "
+        state(cur, f"+{short(step_cls)}")
+        print(f"{'':22}records {step.nbytes:,} B packed vs dense tables "
               f"{step.dense_nbytes:,} B")
-    for rep in range(reps):
-        for step_cls in (ValueSortColStep, ValueSortRowStep):
-            step = step_cls.build_from(cur, block_size)
-            cur = step.apply(cur)
-            state(cur, f"round {rep + 1} +{step.direction}")
+    for name, cycle in (("col/row", (ValueSortColStep, ValueSortRowStep)),
+                        ("priced col/row", (ValueSortColPricedStep,
+                                            ValueSortRowPricedStep)),
+                        ("col/row/diag", (ValueSortColStep, ValueSortRowStep,
+                                          ValueSortDiagStep)),
+                        ("col/row/diag11", (ValueSortColStep, ValueSortRowStep,
+                                            ValueSortDiag11Step))):
+        cur = ary
+        for rep in range(reps):
+            for step_cls in cycle:
+                step = step_cls.build_from(cur, block_size)
+                cur = step.apply(cur)
+                state(cur, f"{name} r{rep + 1} {short(step_cls)}")
 
 
 class BitPrep(NamedTuple):
     """stackable prepare steps over one bit axis: the current data, the
     global position of every local bit (MSB-first local order) and the
     steps applied so far. The tactic is sorted_bits().trimmed().flipped():
-    sorted_bits() value-sorts the block groups by occurrence
-    (ValueSortColStep remap, values shrink into a hole-free low range)
-    and orders the bit positions ascending by P(B=1) (SortStep — the
+    sorted_bits() value-sorts the groups by occurrence (ValueSortStep
+    remap — col blocks or row group stride, whichever class the caller
+    passes; build_classes alternates the directions per level) and
+    orders the bit positions ascending by P(B=1) (SortStep — the
     flip needs that order); trimmed() pulls the leading constant-0 bits
     out of the data (storing only their count) and the majority-1 bits
     form a trailing suffix, so only the flip count has to be stored
@@ -324,8 +438,9 @@ class BitPrep(NamedTuple):
     bits: List[int]
     steps: Tuple[FlipStep | SortStep | TrimStep | ValueSortStep, ...] = ()
 
-    def sorted_bits(self, block_size: int = 4) -> "BitPrep":
-        value_step = ValueSortColStep.build_from(self.ary, block_size)
+    def sorted_bits(self, value_sort: type[ValueSortStep] = ValueSortColStep,
+                    block_size: int = 4) -> "BitPrep":
+        value_step = value_sort.build_from(self.ary, block_size)
         remapped = value_step.apply(self.ary)
         sort_step = SortStep.build_from(remapped)
         key = sort_step.record.to_argsort()
@@ -412,9 +527,11 @@ def build_classes(ary: NBitArray, bits: List[int], verbose: int = 1,
     bits) — and the items are partitioned by it into classes (label =
     the drawn bit's value, the drawn bit removed from the class data).
     After every step each class gets its remaining bits value-sorted
-    by occurrence (ValueSortColStep remap), ordered ascending by P(B=1)
-    (SortStep), the leading constant-0 bits pulled out of the data
-    (TrimStep) and the majority-1 suffix flipped (steps recorded; flip
+    by occurrence (ValueSortStep remap — col blocks, row strides and
+    two-right-one-up diagonals cycling per level so the mass keeps
+    moving down), ordered ascending by P(B=1) (SortStep), the leading
+    constant-0 bits pulled out of the data (TrimStep) and the
+    majority-1 suffix flipped (steps recorded; flip
     count 0 = mask 0). Recurses into every class; bits maps the local
     bit axis of ary to global positions. Only leaf rules end the
     recursion: a group with at most target_leaf_items items is a leaf
@@ -457,16 +574,17 @@ def build_classes(ary: NBitArray, bits: List[int], verbose: int = 1,
     child_bits = [g for g in bits if g != drawn_global]
     if verbose:
         print(f"{ind}draw bit {drawn_global} |dP| {gains[best_pos]:.3f}")
+    value_sort = (ValueSortColStep, ValueSortRowStep, ValueSortDiagStep)[_depth % 3]
     classes = []
     for label, g in ary.group_by_bit(best_pos).items():
         n_items = g.get_item_count()
-        prep = BitPrep(g, child_bits).sorted_bits().trimmed().flipped()
+        prep = BitPrep(g, child_bits).sorted_bits(value_sort).trimmed().flipped()
         n_trimmed = sum(s.count for s in prep.steps if isinstance(s, TrimStep))
         n_flipped = prep.steps[-1].count
         flipped_global = prep.bits[len(prep.bits) - n_flipped:]
         if verbose:
-            print(f"{ind} class {int(label)}: n={n_items}, trim {n_trimmed} -> "
-                  f"{n_flipped} flipped {flipped_global}")
+            print(f"{ind} class {int(label)}: n={n_items}, vs {value_sort.direction}, "
+                  f"trim {n_trimmed} -> {n_flipped} flipped {flipped_global}")
         child = build_classes(prep.ary, prep.bits, verbose,
                               target_leaf_items, _depth + 1)
         classes.append(BitClass(int(label), prep.ary, prep.bits, prep.steps, child))
