@@ -78,38 +78,102 @@ class MeanChange(NamedTuple):
     same_order: bool
 
 
-def get_mean_change(ary: NBitArray, b_original: List[int]) -> MeanChange:
-    """|dP| per bit: expected absolute change of the OTHER bits' means
-    when bit i becomes known (items grouped by bit i, share-weighted by
-    group size; bit i itself is excluded — the group views drop it).
-    prob_key is the P(B=1) sort of ary, change_key the |dP| sort;
-    same_order tells whether the bits would be ordered differently."""
-    bitty = Bitty(ary)
-    bit_count_remaining = bitty.get_bit_count()-len(b_original)
-    item_count = bitty.get_item_count()
-    bits = range(bit_count_remaining)
-    for b_i in b_original:
-        for k_origin, g_origin in bitty.group_by_bit(b_i).items():
-             original_means = bitty.get_bitwise_mean(axis=0)
-             diffs = np.zeros(bit_count_remaining, np.float32)
-             local_i_count = g_origin.get_item_count()
-             for i in bits:
-                    other_means = np.delete(original_means, i)
-                    diff_per_group = [np.abs(g.get_bitwise_mean(axis=0) - other_means)
-                                      * g.get_item_count() / local_i_count for k, g in g_origin.group_by_bit(i).items()]
-                    print(f"If Bit {b_i} was {k_origin} and now Bit {i} is 0/1:")
-                    print_prob_bars(np.array(diff_per_group)*10)
-                    diffs[i] = np.sum(diff_per_group)
-    prob_key = np.argsort(original_means, kind="stable")
-    change_key = np.argsort(diffs, kind="stable")
+def get_mean_change(ary: NBitArray, b_original: List[int] | None = None,
+                    verbose: bool = True) -> MeanChange:
+    """greedy |dP| bit ordering: the bit with the highest expected change
+    of the other bits' means gets idx 0, the items are partitioned by it,
+    and with the per-group means as the new reference the next bit is
+    picked the same way — repeated until all bits are ordered. A
+    candidate's gain is summed over all current groups, share-weighted
+    by subgroup size over all items. b_original seeds already-decided
+    leading bits. change holds each bit's |dP| at pick time; prob_key /
+    same_order compare the pick order against the plain P(B=1) sort.
+    verbose prints per pick how the partition doubles: each new group's
+    mean diff vs its parent group (path label + group size + |dP| bars
+    over the remaining bits, cols legend in the step line)."""
+    bits = np.asarray(ary.get_bitwise()).astype(np.uint8)
+    item_count, bit_count = bits.shape
+    b_original = list(b_original) if b_original else []
+    means = bits.mean(axis=0)
+    gains = np.zeros(bit_count, np.float32)
+    order: List[int] = []
+    remaining = list(range(bit_count))
+
+    cell_id = np.zeros(item_count, dtype=np.intp)
+    n_cells = 1
+    paths: List[str] = [""]
+    for b in b_original:
+        if b not in remaining:
+            raise Exception(f"b_original bit {b} is not a remaining bit of ary")
+        key = cell_id * 2 + bits[:, b]
+        uniq = np.unique(key)
+        remap = np.zeros(int(uniq.max()) + 1, dtype=np.intp)
+        remap[uniq] = np.arange(uniq.size)
+        cell_id = remap[key]
+        n_cells = int(uniq.size)
+        paths = [paths[u // 2] + f"b{b}={u % 2} " for u in uniq]
+        order.append(b)
+        remaining.remove(b)
+
+    rem_arr = np.array(remaining, dtype=np.intp)
+
+    def group_sums(keys, cols, n_keys):
+        sums = np.empty((n_keys, cols.size))
+        for c in range(cols.size):
+            sums[:, c] = np.bincount(keys, weights=bits[:, cols[c]], minlength=n_keys)
+        return sums
+
+    cell_counts = np.bincount(cell_id, minlength=n_cells)
+    cell_means = group_sums(cell_id, rem_arr, n_cells) / cell_counts[:, None]
+
+    while remaining:
+        cand_gains = np.zeros(len(remaining))
+        for pos in range(len(remaining)):
+            key = cell_id * 2 + bits[:, rem_arr[pos]]
+            counts = np.bincount(key, minlength=2 * n_cells)
+            nz = np.flatnonzero(counts)
+            other_cols = np.delete(rem_arr, pos)
+            sub_means = group_sums(key, other_cols, 2 * n_cells)[nz] / counts[nz, None]
+            parent_rows = np.delete(cell_means[nz // 2], pos, axis=1)
+            delta = np.abs(sub_means - parent_rows)
+            cand_gains[pos] = np.sum(counts[nz] / item_count * delta.sum(axis=1))
+        best_pos = int(np.argmax(cand_gains))
+        best = remaining[best_pos]
+        gains[best] = cand_gains[best_pos]
+        order.append(best)
+        print(f"step {len(order)}: bit {best} |dP| {cand_gains[best_pos]:.3f}")
+
+        key = cell_id * 2 + bits[:, rem_arr[best_pos]]
+        counts = np.bincount(key, minlength=2 * n_cells)
+        nz = np.flatnonzero(counts)
+        remap = np.zeros(2 * n_cells, dtype=np.intp)
+        remap[nz] = np.arange(nz.size)
+        cell_id = remap[key]
+        parents = nz // 2
+        old_cell_means = cell_means
+        paths = [paths[p] + f"b{best}={s % 2} " for p, s in zip(parents, nz)]
+        rem_arr = np.delete(rem_arr, best_pos)
+        cell_means = group_sums(cell_id, rem_arr, nz.size) / counts[nz, None]
+        n_cells = int(nz.size)
+        remaining.pop(best_pos)
+        if verbose and cand_gains[best_pos] > 0:
+            print("  cols:", [int(c) for c in rem_arr])
+            for j, s in enumerate(nz):
+                delta = np.abs(cell_means[j] - np.delete(old_cell_means[parents[j]], best_pos))
+                if (delta > 1e-12).any():
+                    print(f"  {paths[j]}(n={counts[s]}):")
+                    print_prob_bars(delta * 10, lines=1)
+
+    prob_key = np.argsort(means, kind="stable")
+    change_key = np.array(order, dtype=np.intp)
     same_order = bool(np.array_equal(prob_key, change_key))
-    print("Per bit: P(B=1) / |dP| (change of the other bits' means when the bit is known):")
-    print_prob_bars(np.array((original_means, diffs)))
+    print("Per bit: P(B=1) / |dP| at pick time:")
+    print_prob_bars(np.array((means, gains)))
+    print("greedy |dP| order:", change_key)
     print("same order as a P(B=1) sort:", same_order)
     if not same_order:
         print(" P1 :", prob_key)
-        print(" |dP|:", change_key)
-    return MeanChange(diffs, prob_key, change_key, same_order)
+    return MeanChange(gains, prob_key, change_key, same_order)
 
 
 class SortedFlippedAry(NamedTuple): # Die Bits sind sortiert, nicht die items
