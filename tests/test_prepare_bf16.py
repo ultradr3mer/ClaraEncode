@@ -1,9 +1,10 @@
 """PrepareBf16 tests: SortedFlippedAry.build_from / get_ary round-trip.
 
-Clara's design (2026-08-30): flip all flags leaning toward 1 (incl.
-defined-1 bits -> 0), one global stable ascending argsort by flipped
-mean, ary kept full-width as a SliceView. get_ary() must restore the
-original buffer (prepare_uint16 itself raises if not).
+Clara's design (2026-09-13): sort the bits ascending by P(B=1) first,
+then flip the trailing suffix of majority-1 bits (P > .5) — so only the
+flip count is stored instead of a mask. ary kept full-width as a
+SliceView. get_ary() must restore the original buffer (prepare_uint16
+itself raises if not).
 
 Run: python tests/test_prepare_bf16.py
 """
@@ -30,29 +31,31 @@ def prepare(values):
 
 
 def test_sorted_case():
-    # pos1 mean .5, pos2 mean .75 (flip), pos3 mean .25, pos15 constant 1 (flip)
+    # pos1 mean .5, pos2 mean .75, pos3 mean .25, pos15 constant 1
+    # sorted ascending by P: zeros, .25 (pos3), .5 (pos1), .75 (pos2), 1 (pos15)
+    # -> flipped suffix = {pos2, pos15} -> count 2
     sf, x = prepare([28673, 24577, 8193, 1])
     assert np.array_equal(sf.bit_key, [0, 4, 5, 6, 7, 8, 9, 10, 11, 12,
-                                       13, 14, 15, 2, 3, 1])
-    assert sf.flipped_bits.value == 8193
+                                       13, 14, 3, 1, 2, 15])
+    assert sf.flipped_count == 2
     assert sf.ary.get_bit_count() == 16
-    assert np.array_equal(sf.ary.get_array(), [3, 1, 0, 4])
+    assert np.array_equal(sf.ary.get_array(), [12, 4, 0, 2])
     assert np.array_equal(np.array(sf.get_ary()), x)
 
 
 def test_defined_one_flips_to_zero():
-    # sign bit (pos0) constant 1 -> flipped to 0, sorts before the .5 bit
+    # sign bit (pos0) constant 1 -> sorts last, flipped suffix (count 1)
     sf, x = prepare([49152, 49152, 32768, 32768])
-    assert sf.flipped_bits.value == 32768
-    assert np.array_equal(sf.bit_key[:2], [0, 2])
-    assert np.array_equal(sf.ary.get_array(), [1, 1, 0, 0])
+    assert sf.flipped_count == 1
+    assert np.array_equal(sf.bit_key[-2:], [1, 0])
+    assert np.array_equal(sf.ary.get_array(), [2, 2, 0, 0])
     assert np.array_equal(np.array(sf.get_ary()), x)
 
 
 def test_all_defined():
     sf, x = prepare([7, 7, 7, 7])
     assert np.array_equal(sf.bit_key, np.arange(16))
-    assert sf.flipped_bits.value == 7
+    assert sf.flipped_count == 3
     assert np.array_equal(sf.ary.get_array(), [0, 0, 0, 0])
     assert np.array_equal(np.array(sf.get_ary()), x)
 

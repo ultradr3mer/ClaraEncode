@@ -195,21 +195,29 @@ def get_mean_change(ary: NBitArray, b_original: List[int] | None = None,
 
 
 class FlipStep(NamedTuple):
-    """majority-1 bits (P(B=1) > .5) flipped so the majority is 0; the
-    mask is packed over the step input's bit axis (MSB-first). Undo ==
-    apply, flipping is an involution."""
-    mask: CommonNBitSc
+    """suffix flip: after sorting the bits ascending by P(B=1) the
+    majority-1 bits (P > .5) form a trailing suffix, so only the flip
+    count is stored instead of a mask. apply/undo XOR every item with
+    the low-count mask (flipping is an involution). Needs the input
+    sorted — the count would flip the wrong bits otherwise."""
+    count: int
 
     @classmethod
     def build_from(cls, ary: NBitArray, means: np.ndarray | None = None) -> "FlipStep":
         if means is None:
             means = ary.get_bitwise_mean(axis=0)
-        return cls(get_number(np.round(means).astype(np.uint8)))
+        if np.any(np.diff(means) < 0):
+            raise Exception("FlipStep needs the bits sorted ascending by P(B=1) (suffix flip)")
+        return cls(int((means > 0.5).sum()))
+
+    @property
+    def mask_value(self) -> int:
+        return (1 << self.count) - 1
 
     def apply(self, ary: NBitArray) -> NBitArray:
         bit_count = ary.get_bit_count()
         data = ary.get_array()
-        mask = np.full_like(data, self.mask.value)
+        mask = np.full_like(data, self.mask_value)
         return NBitAryOnly((data ^ mask), bit_count)
 
     def undo(self, ary: NBitArray) -> NBitArray:
@@ -237,15 +245,12 @@ class SortStep(NamedTuple):
 class BitPrep(NamedTuple):
     """stackable prepare steps over one bit axis: the current data, the
     global position of every local bit (MSB-first local order) and the
-    steps applied so far. flipped() / sorted_bits() stack freely:
-    flip-sort, sort-flip, only flip, only sort."""
+    steps applied so far. The tactic is sorted_bits().flipped(): the
+    FlipStep is a suffix flip and needs the bits sorted ascending by
+    P(B=1) first (so only the flip count has to be stored)."""
     ary: NBitArray
     bits: List[int]
     steps: Tuple[FlipStep | SortStep, ...] = ()
-
-    def flipped(self) -> "BitPrep":
-        step = FlipStep.build_from(self.ary)
-        return BitPrep(step.apply(self.ary), self.bits, self.steps + (step,))
 
     def sorted_bits(self) -> "BitPrep":
         step = SortStep.build_from(self.ary)
@@ -253,6 +258,10 @@ class BitPrep(NamedTuple):
         return BitPrep(step.apply(self.ary),
                        [self.bits[int(i)] for i in key],
                        self.steps + (step,))
+
+    def flipped(self) -> "BitPrep":
+        step = FlipStep.build_from(self.ary)
+        return BitPrep(step.apply(self.ary), self.bits, self.steps + (step,))
 
     def undo_all(self) -> NBitArray:
         ary = self.ary
@@ -302,7 +311,8 @@ class ClassSplit(NamedTuple):
 
 def build_classes(ary: NBitArray, bits: List[int], break_on_n_flips: int = 2,
                   verbose: bool = True, n_splits: int | None = None,
-                  _depth: int = 0, _budget: List[int] | None = None) -> ClassSplit | None:
+                  target_leaf_mean: int = 255, _depth: int = 0,
+                  _budget: List[int] | None = None) -> ClassSplit | None:
     """recursive flip-sort process: draw bits with get_mean_change until
     a group has more than break_on_n_flips majority-1 bits among its
     remaining bits (break) or nothing changes anymore (leaf). The drawn
@@ -312,10 +322,23 @@ def build_classes(ary: NBitArray, bits: List[int], break_on_n_flips: int = 2,
     recorded), all others record a 0 flip mask. Recurses into every
     class; bits maps the local bit axis of ary to global positions.
     n_splits caps the total number of class splits (depth-first);
-    budget-spent groups return as leaves holding their data. Returns
-    the ClassSplit tree (None = leaf)."""
+    budget-spent groups return as leaves holding their data. A group
+    whose remaining bits, interpreted as numbers (get_array()), have a
+    mean below target_leaf_mean is a leaf — the repeated sort+flip
+    shrinks the values fast (0 disables the check). Returns the
+    ClassSplit tree (None = leaf)."""
     ind = "  " * _depth
+    ary = Bitty(ary)
     if ary.get_bit_count() == 0:
+        return None
+    value_mean = np.mean(ary.get_array())
+    if value_mean < target_leaf_mean:
+        if verbose:
+            print(f"{ind}leaf: {ary.get_item_count()} items, {ary.get_bit_count()} bits left, "
+                  f">0.5: {int((ary.get_bitwise_mean(axis=0) > 0.5).sum())}, "
+                  f"mean {value_mean:.1f} < target_leaf_mean {target_leaf_mean}")
+            print(f"{ind} bits:", bits)
+            print_prob_bars(ary.get_bitwise_mean(axis=0), lines=1)
         return None
     if _budget is None:
         _budget = [n_splits] if n_splits is not None else None
@@ -347,25 +370,24 @@ def build_classes(ary: NBitArray, bits: List[int], break_on_n_flips: int = 2,
         n_items = g.get_item_count()
         turned = int((g.get_bitwise_mean(axis=0) > 0.5).sum())
         if turned > break_on_n_flips:
-            prep = BitPrep(g, child_bits).flipped()
-            flipped_global = [prep.bits[int(j)] for j in np.flatnonzero(
-                np.asarray(get_bits(prep.steps[0].mask)).astype(bool))]
-            prep = prep.sorted_bits()
+            prep = BitPrep(g, child_bits).sorted_bits().flipped()
+            n_flipped = prep.steps[-1].count
+            flipped_global = prep.bits[len(prep.bits) - n_flipped:]
             if verbose:
                 print(f"{ind} class {int(label)}: n={n_items}, >0.5: {turned} -> "
-                      f"{len(flipped_global)} flipped {flipped_global}")
+                      f"{n_flipped} flipped {flipped_global}")
         else:
-            prep = BitPrep(g, child_bits, (FlipStep(get_number(np.zeros(g.get_bit_count(), np.uint8))),))
+            prep = BitPrep(g, child_bits, (FlipStep(0),))
             if verbose:
                 print(f"{ind} class {int(label)}: n={n_items}, >0.5: {turned} -> mask 0")
         child = build_classes(prep.ary, prep.bits, break_on_n_flips, verbose,
-                              n_splits, _depth + 1, _budget)
+                              n_splits, target_leaf_mean, _depth + 1, _budget)
         classes.append(BitClass(int(label), prep.ary, prep.bits, prep.steps, child))
     return ClassSplit(drawn_global, tuple(classes))
 
 
 class SortedFlippedAry(NamedTuple): # Die Bits sind sortiert, nicht die items
-    flipped_bits: CommonNBitSc
+    flipped_count: int
     ary: NBitArray
     means: np.ndarray
     sort_record: MergeSortRecord
@@ -383,67 +405,57 @@ class SortedFlippedAry(NamedTuple): # Die Bits sind sortiert, nicht die items
         return result
 
     @classmethod
-    def flip_data_ary(cls, ary: NBitArray, mask: CommonNBitSc) -> NBitArray:
-        return FlipStep(mask).apply(ary)
-
-    @classmethod
     def build_from(cls, ary: NBitArray) -> SortedFlippedAry:
         bit_count = ary.get_bit_count()
         original_means = np.mean(ary.get_bitwise(), axis=0, dtype=np.float32)
-        flip_mask: npt.NDArray[np.uint8] = np.round(original_means).astype(np.uint8)
-        flip_packed: CommonNBitSc = get_number(flip_mask)
-        if not (flip_mask == get_bits(flip_packed,16)).any():
-            raise Exception("das")
-
-        flipped_data = cls.flip_data_ary(ary, flip_packed)
-        flipped_means = cls.flip_means_ary(original_means, flip_mask)
-        print("P(B=1) / Flip / BER   (BER = P(bit != most common value)):")
-        print_prob_bars(np.array((original_means, flip_mask, flipped_means)))
-        print("Flips:", flip_mask, "packed:", flip_packed)
-        sort_step = SortStep.build_from(flipped_data, flipped_means)
-        sort_record = sort_step.record
+        sort_step = SortStep.build_from(ary, original_means)
         sort_idx = sort_step.record.to_argsort()
+        sorted_data = sort_step.apply(ary)
+        sorted_means = original_means[sort_idx]
 
-        sorted_data = sort_step.apply(flipped_data)
+        flip_step = FlipStep.build_from(sorted_data, sorted_means)
+        flipped_data = flip_step.apply(sorted_data)
+        flip_mask: npt.NDArray[np.uint8] = np.round(sorted_means).astype(np.uint8)
+        flipped_means = cls.flip_means_ary(sorted_means, flip_mask)
+        print("P(B=1) / Flip / BER   (BER = P(bit != most common value)):")
+        print_prob_bars(np.array((sorted_means, flip_mask, flipped_means)))
+        print("Flips:", flip_mask, "count:", flip_step.count)
 
         idx_bytes = bit_count * np.dtype(get_type_for_scalar(bit_count)).itemsize
         print("Sort memory: argsort idx", idx_bytes, "B vs record",
-              sort_record.bit_count, "bits ->", sort_record.nbytes, "B packed")
-        print("saved:", idx_bytes - sort_record.nbytes, "B",
-              f"({100 * (idx_bytes - sort_record.nbytes) / idx_bytes:.0f}% less)")
+              sort_step.record.bit_count, "bits ->", sort_step.record.nbytes, "B packed")
+        print("saved:", idx_bytes - sort_step.record.nbytes, "B",
+              f"({100 * (idx_bytes - sort_step.record.nbytes) / idx_bytes:.0f}% less)")
 
-        sorted_flipped_means = flipped_means[sort_idx]
-        original_means_sorted = np.sort(original_means)
         print("Sorted desc: P(B=1) / Diff(P1-BER) / BER:")
-        print_prob_bars(np.array((original_means_sorted, (original_means_sorted-sorted_flipped_means), sorted_flipped_means)))
+        print_prob_bars(np.array((sorted_means, (sorted_means-flipped_means), flipped_means)))
 
         o_mean = np.mean(ary)
-        f_mean = np.mean(flipped_data)
-        if o_mean < f_mean:
-            raise Exception("flipping is supposed to reduce the numbersize")
-
-
         s_mean = np.mean(sorted_data)
-        if f_mean < s_mean:
+        if o_mean < s_mean:
             raise Exception("sorting is supposed to reduce the numbersize")
 
-        print("Mean:",o_mean,"flipped:",f_mean,"sorted",s_mean)
-        print("Bitcount:", get_bit_count(int(o_mean)), "over:", get_bit_count(int(f_mean)), "to", get_bit_count(int(s_mean)))
+
+        f_mean = np.mean(flipped_data)
+        if s_mean < f_mean:
+            raise Exception("flipping is supposed to reduce the numbersize")
+
+        print("Mean:",o_mean,"sorted:",s_mean,"flipped",f_mean)
+        print("Bitcount:", get_bit_count(int(o_mean)), "over:", get_bit_count(int(s_mean)), "to", get_bit_count(int(f_mean)))
 
         def get_slices_of_len(n: int):
-            return [np.unique(sorted_data.b[r:r+n].read(), return_counts=True) for r in range(0,32,n)]
+            return [np.unique(flipped_data.b[r:r+n].read(), return_counts=True) for r in range(0,32,n)]
 
         slices_of_2 = get_slices_of_len(2)
         slices_of_4 = get_slices_of_len(4)
         # slices_of_8 = get_slices_of_len(8)
 
-        return SortedFlippedAry(flip_packed, sorted_data, sorted_flipped_means, sort_record)
+        return SortedFlippedAry(flip_step.count, flipped_data, flipped_means, sort_step.record)
 
     def get_ary(self) -> NBitArray:
-        """reverses the sort and flip to restore the original aray"""
-        unsorted = self.ary.b[self.sort_record.get_reversed().to_argsort()]
-        unfliped = self.flip_data_ary(unsorted, self.flipped_bits)
-        return unfliped
+        """reverses the flip and sort to restore the original aray"""
+        unflipped = FlipStep(self.flipped_count).undo(self.ary)
+        return unflipped.b[self.sort_record.get_reversed().to_argsort()]
 
     def get_internal(self) -> NBitArray:
         return self.ary
