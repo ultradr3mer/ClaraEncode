@@ -281,9 +281,28 @@ class ClassSplit(NamedTuple):
     drawn: Tuple[int, ...]
     classes: Tuple[BitClass, ...]
 
+    @property
+    def stats(self) -> Tuple[int, int, int, int]:
+        """(levels, leaves, depth, flip_sorted_classes) of the tree."""
+        def rec(split: "ClassSplit | None", d: int) -> Tuple[int, int, int, int]:
+            if split is None:
+                return 0, 1, d, 0
+            levels, leaves, depth, flipped = 1, 0, d, 0
+            for c in split.classes:
+                if any(isinstance(s, SortStep) for s in c.steps):
+                    flipped += 1
+                l, lf, dp, f = rec(c.child, d + 1)
+                levels += l
+                leaves += lf
+                depth = max(depth, dp)
+                flipped += f
+            return levels, leaves, depth, flipped
+        return rec(self, 0)
+
 
 def build_classes(ary: NBitArray, bits: List[int], break_on_n_flips: int = 2,
-                  verbose: bool = True, _depth: int = 0) -> ClassSplit | None:
+                  verbose: bool = True, n_splits: int | None = None,
+                  _depth: int = 0, _budget: List[int] | None = None) -> ClassSplit | None:
     """recursive flip-sort process: draw bits with get_mean_change until
     a group has more than break_on_n_flips majority-1 bits among its
     remaining bits (break) or nothing changes anymore (leaf). The drawn
@@ -291,9 +310,18 @@ def build_classes(ary: NBitArray, bits: List[int], break_on_n_flips: int = 2,
     drawn, drawn bits removed from the class data). Classes with more
     than break_on_n_flips majority-1 bits become flip+sorted (steps
     recorded), all others record a 0 flip mask. Recurses into every
-    class; bits maps the local bit axis of ary to global positions."""
+    class; bits maps the local bit axis of ary to global positions.
+    n_splits caps the total number of class splits (depth-first);
+    budget-spent groups return as leaves holding their data. Returns
+    the ClassSplit tree (None = leaf)."""
     ind = "  " * _depth
     if ary.get_bit_count() == 0:
+        return None
+    if _budget is None:
+        _budget = [n_splits] if n_splits is not None else None
+    if _budget is not None and _budget[0] <= 0:
+        if verbose:
+            print(f"{ind}leaf: {ary.get_item_count()} items, {ary.get_bit_count()} bits left, split budget spent")
         return None
     mc = get_mean_change(ary, verbose=False, break_on_n_flips=break_on_n_flips)
     if len(mc.change_key) == 0:
@@ -303,6 +331,8 @@ def build_classes(ary: NBitArray, bits: List[int], break_on_n_flips: int = 2,
     drawn_local = [int(b) for b in mc.change_key]
     drawn_global = tuple(bits[p] for p in drawn_local)
     child_bits = [g for g in bits if g not in drawn_global]
+    if _budget is not None:
+        _budget[0] -= 1
     if verbose:
         print(f"{ind}draw {len(drawn_local)} bits (global {list(drawn_global)}), "
               f"{'break: group turned' if mc.break_fired else 'dead end'}")
@@ -319,7 +349,8 @@ def build_classes(ary: NBitArray, bits: List[int], break_on_n_flips: int = 2,
             prep = BitPrep(g, child_bits, (FlipStep(get_number(np.zeros(g.get_bit_count(), np.uint8))),))
             if verbose:
                 print(f"{ind} class {int(label)}: n={n_items}, >0.5: {turned} -> mask 0")
-        child = build_classes(prep.ary, prep.bits, break_on_n_flips, verbose, _depth + 1)
+        child = build_classes(prep.ary, prep.bits, break_on_n_flips, verbose,
+                              n_splits, _depth + 1, _budget)
         classes.append(BitClass(int(label), prep.ary, prep.bits, prep.steps, child))
     return ClassSplit(drawn_global, tuple(classes))
 
@@ -464,7 +495,9 @@ if __name__ == "__main__":
 
         sf = prepare_uint32(buffer)
 
-        split = build_classes(sf.get_internal(), [int(b) for b in sf.bit_key], break_on_n_flips=4)
+        split = build_classes(sf.get_internal(), [int(b) for b in sf.bit_key],
+                          break_on_n_flips=4, n_splits=16)
+        print("result:", split.stats)
 
 
 
