@@ -291,29 +291,34 @@ class ClassSplit(NamedTuple):
     classes: Tuple[BitClass, ...]
 
     @property
-    def stats(self) -> Tuple[int, int, int, int, float]:
-        """(levels, leaves, depth, flip_sorted_classes, avg_leaf_depth)
-        of the tree."""
-        def rec(split: "ClassSplit | None", d: int) -> Tuple[int, int, int, int, int]:
+    def stats(self) -> Tuple[int, int, int, int, float, int]:
+        """(levels, leaves, depth, flip_sorted_classes, avg_leaf_depth,
+        leaf_sum) of the tree — leaf_sum sums the values of all leaf
+        classes (get_array()), the total residual the tree leaves to
+        encode."""
+        def rec(split: "ClassSplit | None", d: int) -> Tuple[int, int, int, int, int, int]:
             if split is None:
-                return 0, 1, d, 0, d
-            levels, leaves, depth, flipped, depth_sum = 1, 0, d, 0, 0
+                return 0, 1, d, 0, d, 0
+            levels, leaves, depth, flipped, depth_sum, leaf_sum = 1, 0, d, 0, 0, 0
             for c in split.classes:
+                if c.child is None:
+                    leaf_sum += int(np.sum(c.ary.get_array()))
                 if any(isinstance(s, SortStep) for s in c.steps):
                     flipped += 1
-                l, lf, dp, f, ds = rec(c.child, d + 1)
+                l, lf, dp, f, ds, ls = rec(c.child, d + 1)
                 levels += l
                 leaves += lf
                 depth = max(depth, dp)
                 flipped += f
                 depth_sum += ds
-            return levels, leaves, depth, flipped, depth_sum
-        levels, leaves, depth, flipped, depth_sum = rec(self, 0)
-        return levels, leaves, depth, flipped, depth_sum / leaves
+                leaf_sum += ls
+            return levels, leaves, depth, flipped, depth_sum, leaf_sum
+        levels, leaves, depth, flipped, depth_sum, leaf_sum = rec(self, 0)
+        return levels, leaves, depth, flipped, depth_sum / leaves, leaf_sum
 
 
 def build_classes(ary: NBitArray, bits: List[int], break_on_n_flips: int = 2,
-                  verbose: bool = True, target_leaf_mean: int = 255,
+                  verbose: bool = True, target_leaf_items: int = 255,
                   _depth: int = 0) -> ClassSplit | None:
     """recursive flip-sort process: draw bits with get_mean_change until
     a group has more than break_on_n_flips majority-1 bits among its
@@ -324,21 +329,18 @@ def build_classes(ary: NBitArray, bits: List[int], break_on_n_flips: int = 2,
     recorded), all others record a 0 flip mask. Recurses into every
     class; bits maps the local bit axis of ary to global positions.
     Only the leaf rules end the recursion — the tree depth is not
-    capped: a group whose remaining bits, interpreted as numbers
-    (get_array()), have a mean below target_leaf_mean is a leaf (the
-    repeated sort+flip shrinks the values fast; 0 disables the check),
-    and so are groups where nothing turns anymore or no bits are left.
-    Returns the ClassSplit tree (None = leaf)."""
+    capped: a group with at most target_leaf_items items is a leaf
+    (split until 255 remain; 0 disables the check), and so are groups
+    where nothing turns anymore or no bits are left. Returns the
+    ClassSplit tree (None = leaf)."""
     ind = "  " * _depth
     ary = Bitty(ary)
     if ary.get_bit_count() == 0:
         return None
-    value_mean = np.mean(ary.get_array())
-    if value_mean < target_leaf_mean:
+    if ary.get_item_count() <= target_leaf_items:
         if verbose:
-            print(f"{ind}leaf: {ary.get_item_count()} items, {ary.get_bit_count()} bits left, "
-                  f">0.5: {int((ary.get_bitwise_mean(axis=0) > 0.5).sum())}, "
-                  f"mean {value_mean:.1f} < target_leaf_mean {target_leaf_mean}")
+            print(f"{ind}leaf: {ary.get_item_count()} items <= target {target_leaf_items}, "
+                  f"{ary.get_bit_count()} bits left, >0.5: {int((ary.get_bitwise_mean(axis=0) > 0.5).sum())}")
             print(f"{ind} bits:", bits)
             print_prob_bars(ary.get_bitwise_mean(axis=0), lines=1)
         return None
@@ -372,7 +374,7 @@ def build_classes(ary: NBitArray, bits: List[int], break_on_n_flips: int = 2,
             if verbose:
                 print(f"{ind} class {int(label)}: n={n_items}, >0.5: {turned} -> mask 0")
         child = build_classes(prep.ary, prep.bits, break_on_n_flips, verbose,
-                              target_leaf_mean, _depth + 1)
+                              target_leaf_items, _depth + 1)
         classes.append(BitClass(int(label), prep.ary, prep.bits, prep.steps, child))
     return ClassSplit(drawn_global, tuple(classes))
 
@@ -508,10 +510,14 @@ if __name__ == "__main__":
         sf = prepare_uint32(buffer)
 
         split = build_classes(sf.get_internal(), [int(b) for b in sf.bit_key],
-                          break_on_n_flips=4, target_leaf_mean=1<<14)
-        levels, leaves, depth, flipped, avg_d = split.stats
-        print(f"result: {levels} levels, {leaves} leaves, depth {depth} "
-              f"(avg leaf {avg_d:.1f}), {flipped} flip+sorted classes")
+                          break_on_n_flips=4, target_leaf_items=64)
+        if split is None:
+            print("result: root is a leaf")
+        else:
+            levels, leaves, depth, flipped, avg_d, leaf_sum = split.stats
+            print(f"result: {levels} levels, {leaves} leaves, depth {depth} "
+                  f"(avg leaf {avg_d:.1f}), {flipped} flip+sorted classes, "
+                  f"leaf sum {leaf_sum:,}")
 
 
 
