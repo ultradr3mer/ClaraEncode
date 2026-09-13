@@ -38,8 +38,10 @@ def print_probs(vals: npt.ArrayLike, prec: int = 2) -> str:
     print(out)
     return out
 
-def get_slices_of_len(data: NBitArray, n: int):
-    return [np.unique(data.b[r:r+n].read(), return_counts=True) for r in range(0,32,n)]
+
+def get_slices_of_len(data: NBitArray, n: int = 1, step: int = 1):
+    return [np.unique(data.b[r:r+n].read(), return_counts=True) for r in range(0,32,n*step)]
+
 
 def fmt_prob_bars(vals: npt.ArrayLike, lines: int = 1, blocks: str = " ▁▂▃▄▅▆▇█") -> str:
     """probs as bar chars, one val = one char column per line.
@@ -250,8 +252,9 @@ def build_classes(ary: NBitArray, bits: List[int], verbose: int = 1,
     bit axis of ary to global positions. Only leaf rules end the
     recursion: a group with at most target_leaf_items items is a leaf
     (0 disables the check), and so are groups where no split changes
-    any mean anymore (max |dP| == 0) or no bits are left. Returns the
-    ClassSplit tree (None = leaf)."""
+    any mean anymore (max |dP| == 0) or no bits are left. verbose: 0 =
+    silent, 1 = draw/class lines + leaf stats with prob bars, 2 also
+    prints the leaf bits lists. Returns the ClassSplit tree (None = leaf)."""
     ind = "  " * _depth
     ary = Bitty(ary)
     bit_count = ary.get_bit_count()
@@ -263,7 +266,8 @@ def build_classes(ary: NBitArray, bits: List[int], verbose: int = 1,
             print(f"{ind}leaf: {item_count} items <= target {target_leaf_items}, "
                   f"{bit_count} bits left, mean  {np.mean(ary.get_array()):.2f}")
             print(f"{ind} probs:", fmt_prob_bars(ary.get_bitwise_mean(axis=0), lines=1))
-            if verbose > 1: print(f"{ind} bits:", bits)
+            if verbose > 1:
+                print(f"{ind} bits:", bits)
         return None
     means = ary.get_bitwise_mean(axis=0)
     gains = np.zeros(bit_count)
@@ -279,7 +283,8 @@ def build_classes(ary: NBitArray, bits: List[int], verbose: int = 1,
             print(f"{ind}leaf: {item_count} items, {bit_count} bits left, "
                   f" mean  {np.mean(ary.get_array()):.2f}")
             print(f"{ind} probs:", fmt_prob_bars(ary.get_bitwise_mean(axis=0), lines=1))
-            if verbose > 1: print(f"{ind} bits:", bits)
+            if verbose > 1:
+                print(f"{ind} bits:", bits)
         return None
     drawn_global = bits[best_pos]
     child_bits = [g for g in bits if g != drawn_global]
