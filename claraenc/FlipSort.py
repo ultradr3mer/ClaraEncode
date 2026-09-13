@@ -340,7 +340,7 @@ def build_classes(ary: NBitArray, bits: List[int], break_on_n_flips: int = 2,
     if ary.get_item_count() <= target_leaf_items:
         if verbose:
             print(f"{ind}leaf: {ary.get_item_count()} items <= target {target_leaf_items}, "
-                  f"{ary.get_bit_count()} bits left, >0.5: {int((ary.get_bitwise_mean(axis=0) > 0.5).sum())}")
+                  f"{ary.get_bit_count()} bits left, mean  {np.mean(ary.get_array()):.2f}")
             print(f"{ind} bits:", bits)
             print_prob_bars(ary.get_bitwise_mean(axis=0), lines=1)
         return None
@@ -348,7 +348,7 @@ def build_classes(ary: NBitArray, bits: List[int], break_on_n_flips: int = 2,
     if len(mc.change_key) == 0:
         if verbose:
             print(f"{ind}leaf: {ary.get_item_count()} items, {ary.get_bit_count()} bits left, "
-                  f">0.5: {int((ary.get_bitwise_mean(axis=0) > 0.5).sum())}, nothing turns")
+                  f" mean  {np.mean(ary.get_array()):.2f}")
             print(f"{ind} bits:", bits)
             print_prob_bars(ary.get_bitwise_mean(axis=0), lines=1)
         return None
