@@ -321,12 +321,18 @@ def build_classes(ary: NBitArray, bits: List[int], break_on_n_flips: int = 2,
         _budget = [n_splits] if n_splits is not None else None
     if _budget is not None and _budget[0] <= 0:
         if verbose:
-            print(f"{ind}leaf: {ary.get_item_count()} items, {ary.get_bit_count()} bits left, split budget spent")
+            print(f"{ind}leaf: {ary.get_item_count()} items, {ary.get_bit_count()} bits left, "
+                  f">0.5: {int((ary.get_bitwise_mean(axis=0) > 0.5).sum())}, split budget spent")
+            print(f"{ind} bits:", bits)
+            print_prob_bars(ary.get_bitwise_mean(axis=0), lines=1)
         return None
     mc = get_mean_change(ary, verbose=False, break_on_n_flips=break_on_n_flips)
     if len(mc.change_key) == 0:
         if verbose:
-            print(f"{ind}leaf: {ary.get_item_count()} items, {ary.get_bit_count()} bits left, nothing turns")
+            print(f"{ind}leaf: {ary.get_item_count()} items, {ary.get_bit_count()} bits left, "
+                  f">0.5: {int((ary.get_bitwise_mean(axis=0) > 0.5).sum())}, nothing turns")
+            print(f"{ind} bits:", bits)
+            print_prob_bars(ary.get_bitwise_mean(axis=0), lines=1)
         return None
     drawn_local = [int(b) for b in mc.change_key]
     drawn_global = tuple(bits[p] for p in drawn_local)
