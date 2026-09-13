@@ -464,7 +464,7 @@ if __name__ == "__main__":
 
         sf = prepare_uint32(buffer)
 
-        split = build_classes(sf.get_internal(), [int(b) for b in sf.bit_key])
+        split = build_classes(sf.get_internal(), [int(b) for b in sf.bit_key], break_on_n_flips=4)
 
 
 
