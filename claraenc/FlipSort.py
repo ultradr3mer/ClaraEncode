@@ -186,8 +186,9 @@ def get_group_positions(bit_count: int, block_size: int,
     same-offset positions of every block — the group stride (bucket =
     idx % block_size), 'diag' = the wrapped diagonals of that grid —
     the staggered rows, `slope` (up, right) columns right per one row
-    up (bucket = (right * row + up * col) % gcd(up * cols,
-    right * rows)); default slope = two right, one up.
+    up, both axes wrapping until the cycle closes (coprime grid
+    sides degenerate to one big group); default slope = two right,
+    one up.
     First position = highest bit of the group value."""
     if direction == 'col':
         return [tuple(range(r, min(r + block_size, bit_count)))
@@ -200,28 +201,23 @@ def get_group_positions(bit_count: int, block_size: int,
         ratio = right//up
         if ratio != right/up:
             raise Exception(f"for now only divisor") #TODO was ist das gegentiel von multiples, das ist erlaubt
-        group_pos = []
         block_count = int(np.ceil(bit_count / block_size))
-        x_range = np.arange(block_count)
-        slope = x_range // ratio
-        lhs_pos = np.arange(block_size)
-        y_pos = np.array(lhs_pos.reshape(-1, 1) + slope, dtype=np.uint8)
-        x_pos = np.arange(block_count) + np.ones(block_size, dtype=np.uint8).reshape(-1, 1)
-        base_grid = np.stack((x_pos, y_pos), axis=2).astype(np.uint8) #.copy().view(dtype=np.dtype([('x',np.uint8),('y',np.uint8)])).reshape((4,8))
-        for group in base_grid:
-            g_y = group[:,1]
-            out_mask = g_y >= block_size
-            if not out_mask.any():
-                group_pos.append(tuple(g_y))
-            elif wrap_slope:
-                group_pos.append(tuple(g_y % 4))
-            else:
-                group_pos.append(tuple(g_y[np.where(out_mask)] % 4))
-                group_pos.append(tuple(g_y[np.where(~out_mask)] % 4))
-        group_idx = [range(b * block_size, (b+1) * block_size)
-                              for b in range(block_count)]
-        return [tuple(group_idx[item_bit_idx])
-                for r in group_pos for item_bit_idx in r]
+        groups, seen = [], set()
+        for start in range(block_count * block_size):
+            if start in seen:
+                continue
+            c, r, bits = start // block_size, start % block_size, []
+            b = c * block_size + r
+            while b not in seen:
+                seen.add(b)
+                if b < bit_count:
+                    bits.append(b)
+                c = (c + 1) % block_count
+                r = (r + ratio) % block_size
+                b = c * block_size + r
+            if bits:
+                groups.append(tuple(sorted(bits)))
+        return groups
     raise Exception(f"unknown direction {direction!r} (col, row or diag)")
 
 
