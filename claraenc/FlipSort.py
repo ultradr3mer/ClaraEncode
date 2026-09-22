@@ -350,7 +350,7 @@ class ValueSortDiag11Step(ValueSortStep):
     right. Experiment only — with coprime grid sides it degenerates
     to a single huge group and trips the value space guard."""
     direction = 'diag'
-    slope = (1, 1)
+    slope = (-1, 1)
 
 
 class ValueSortColPricedStep(ValueSortColStep):
