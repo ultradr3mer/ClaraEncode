@@ -55,7 +55,7 @@ def random_model(x):
 
     rng = np.random.default_rng(seed=42)
     r_shape = (bits.shape[0], 32)
-    rand_b = rng.uniform(0, 1, size=r_shape, dtype=np.uint8)
+    rand_b = rng.uniform(low=0, high=1, size=r_shape)
     rand_vec = np.array(rand_b, dtype=float)
 
     w = np.linalg.lstsq(counter_bits, bits_vec, rcond=None)[0]
