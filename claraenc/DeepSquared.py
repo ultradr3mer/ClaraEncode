@@ -12,4 +12,8 @@ if __name__ == "__main__":
 
         x = np.frombuffer(buffer, dtype=np.uint16)
 
+        rng = np.random.default_rng(seed=42)
+        rand_b = rng.uniform(low=0, high=1, size=x.shape)
+        rand_vec = np.array(rand_b, dtype=float)
+
         print(x[0])
