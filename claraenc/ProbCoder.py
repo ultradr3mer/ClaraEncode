@@ -53,6 +53,11 @@ def random_model(x):
     counter_bits = get_spread_set_simple(16,8,2, item_count)
     counter_bits = counter_bits - np.mean(bits_vec, axis=0, keepdims=True)
 
+    rng = np.random.default_rng(seed=42)
+    r_shape = (bits.shape[0], 32)
+    rand_b = rng.uniform(0, 1, size=r_shape, dtype=np.uint8)
+    rand_vec = np.array(rand_b, dtype=float)
+
     w = np.linalg.lstsq(counter_bits, bits_vec, rcond=None)[0]
     print("w:")
     print(w)

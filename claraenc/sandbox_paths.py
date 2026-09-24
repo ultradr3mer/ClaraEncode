@@ -7,7 +7,7 @@ Add a new machine by appending its root to `_ROOTS` below.
 from pathlib import Path
 
 _ROOTS = [
-    Path(r"F:\source\sandbox314\modelCompression"),  # Windows dev box
+    Path(r"D:\modelData"),  # Windows dev box
     Path("/home/deck/PycharmProjects/python-sandbox/modelCompression"),  # Steam Deck
 ]
 
