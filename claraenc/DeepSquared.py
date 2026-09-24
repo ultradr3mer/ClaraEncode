@@ -27,6 +27,14 @@ if __name__ == "__main__":
         x = torch.frombuffer(bytearray(buffer), dtype=torch.bfloat16).to(DEVICE)
 
         gen = torch.Generator(device=DEVICE).manual_seed(42)
-        rand_vec = torch.rand(x.shape, generator=gen, device=DEVICE, dtype=torch.float32)
+        hyperparam_random_input = 8
+        hyperparam_floor = 0.0
+        hyperparam_pow = 1.0
+
+        remainder = 1.0 - hyperparam_floor
+        mult = 1 / remainder
+        r_shape = (x.shape[0], hyperparam_random_input)
+        rand_vec = torch.rand(r_shape, generator=gen, device=DEVICE, dtype=torch.float32)
+        rand_vec = torch.pow((rand_vec - hyperparam_floor) * mult, hyperparam_pow)
 
         print(x[0])
