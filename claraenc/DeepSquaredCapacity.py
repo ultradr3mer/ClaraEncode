@@ -1,7 +1,7 @@
 """How many input_layernorm files can one DeepSquared model memorize?
 Same setup as claraenc/DeepSquared.py, trained on the first k files concatenated.
 
-usage: python claraenc\\DeepSquaredCapacity.py 1 2 3 5 [norm] [std|mean|quart|pct] [L1=1e-10]
+usage: python claraenc\\DeepSquaredCapacity.py 1 2 3 5 [norm] [std|mean|quart|pct] [L1=1e-10] [epochs=5000] [dev=cpu|cuda]
     k values run one after another; "norm" adds LayerNorm after each hidden Linear;
     std|mean|quart|pct pick a per-file target scaling, see target_scaling();
     L1 = lasso strength on the change w - w_init (start weights are seeded)
@@ -18,7 +18,8 @@ if not __package__:
 
 from claraenc.sandbox_paths import sandbox_path
 
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# cpu is faster than cuda for this small net (23.9 vs 29.0 ms/epoch); override with dev=cuda
+DEVICE = torch.device("cpu")
 
 R, G = 8, 32
 H = G * R
@@ -130,7 +131,7 @@ def target_scaling(xf, scale):
     return fwd, inv
 
 
-def run(files, k, use_norm=False, l1=0.0, scale=None):
+def run(files, k, use_norm=False, l1=0.0, scale=None, epochs=5000):
     xs = [torch.frombuffer(bytearray(p.read_bytes()), dtype=torch.bfloat16) for p in files[:k]]
     x = torch.cat(xs).to(DEVICE)
     gen = torch.Generator(device=DEVICE).manual_seed(42)
@@ -160,7 +161,7 @@ def run(files, k, use_norm=False, l1=0.0, scale=None):
 
     best = 0
     t0 = time.time()
-    for epoch in range(5000):
+    for epoch in range(epochs):
         perm = torch.randperm(groups, generator=gen, device=DEVICE)
         for s in range(0, groups, 16):
             idx = perm[s:s + 16]
@@ -176,18 +177,19 @@ def run(files, k, use_norm=False, l1=0.0, scale=None):
             full = loss_fn(out, target).item()  # in scaled units when scale is set
             pred = inv(out)                     # back to x units
         sched.step(full)
-        if epoch % 250 == 0 or epoch == 4999:
+        if epoch % 250 == 0 or epoch == epochs - 1:
             hits = (pred.to(torch.bfloat16) == x_groups)
             best = max(best, hits.sum().item())
             el = time.time() - t0
             per = el / (epoch + 1)
-            print(f"  k={k} epoch {epoch:5d}  exact {hits.sum().item()}/{x.numel()}  "
-                  f"elapsed {el:6.1f}s  {per * 1000:.1f}ms/epoch  eta {per * (4999 - epoch):6.1f}s", flush=True)
+            print(f"  k={k} epoch {epoch:5d}  exact {hits.sum().item()}/{x.numel()} "
+                  f"({hits.float().mean().item():.3%})  "
+                  f"elapsed {el:6.1f}s  {per * 1000:.1f}ms/epoch  eta {per * (epochs - 1 - epoch):6.1f}s", flush=True)
     weight_report(model, "final", init)
     bit_report(pred.to(torch.bfloat16).reshape(-1), x)
     per_file = hits.reshape(k, -1).sum(1).tolist()
     n = x.numel()
-    print(f"k={k} norm={use_norm} scale={scale} L1={l1} values={n} final_exact={hits.sum().item()}/{n} ({hits.float().mean().item():.2%}) "
+    print(f"k={k} dev={DEVICE} norm={use_norm} scale={scale} L1={l1} values={n} final_exact={hits.sum().item()}/{n} ({hits.float().mean().item():.2%}) "
           f"best_exact={best} mse={full:.2e} per_file={per_file} time={time.time() - t0:.0f}s", flush=True)
 
 
@@ -197,8 +199,10 @@ if __name__ == "__main__":
     use_norm = "norm" in argv
     scale = next((a for a in argv if a in ("std", "mean", "quart", "pct")), None)
     l1 = next((float(a[3:]) for a in argv if a.startswith("L1=")), 0.0)
-    ks = [int(a) for a in argv if a not in ("norm", "std", "mean", "quart", "pct") and not a.startswith("L1=")] \
+    epochs = next((int(a[7:]) for a in argv if a.startswith("epochs=")), 5000)
+    DEVICE = torch.device(next((a[4:] for a in argv if a.startswith("dev=")), "cpu"))
+    ks = [int(a) for a in argv if a not in ("norm", "std", "mean", "quart", "pct") and "=" not in a] \
         or [1, 2, 3, 5, len(files)]
     print("files:", [p.name for p in files], flush=True)
     for k in ks:
-        run(files, k, use_norm, l1, scale)
+        run(files, k, use_norm, l1, scale, epochs)
