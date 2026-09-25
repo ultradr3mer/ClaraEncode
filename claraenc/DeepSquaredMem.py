@@ -14,18 +14,9 @@ import torch
 if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from claraenc.DeepSquaredCapacity import bit_report, layernorm_files
+from claraenc.DeepSquaredCapacity import bit_report, layernorm_files, weight_report
 
 G = 32
-
-
-def weight_report(model, tag):
-    """Magnitude of the Linear weight matrices, and how many are (near) zero."""
-    for i, m in enumerate(l for l in model if isinstance(l, torch.nn.Linear)):
-        w = m.weight.detach().abs()
-        print(f"  weights {tag} L{i} {tuple(m.weight.shape)}: max {w.max().item():.3e}  "
-              f"mean {w.mean().item():.3e}  <1e-3: {(w < 1e-3).float().mean().item():.1%}  "
-              f"<1e-5: {(w < 1e-5).float().mean().item():.1%}", flush=True)
 
 
 def unroll(model, inputs, mem, t_from, t_to):
