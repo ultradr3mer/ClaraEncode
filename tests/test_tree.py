@@ -37,7 +37,7 @@ def test_strait_above_root_split():
     coder = make([0, 2], 2)
     assert plain(coder.tree) == \
         ("S", 0, 0, ("N", None, ("L", 2), ("L", 0)))
-    assert coder.codes == {2: "0", 0: "0"}
+    assert coder.codes == {2: "1", 0: "0"}
 
 
 def test_pure_split_no_straits():
@@ -57,7 +57,7 @@ def test_straits_in_both_branches():
         ("N", None,
          ("S", 1, 0, ("N", 0, ("L", 3), ("L", 2))),
          ("S", 1, 1, ("N", 0, ("L", 5), ("L", 4))))
-    assert coder.codes == {3: "10", 2: "10", 5: "10", 4: "10"}
+    assert coder.codes == {3: "11", 2: "10", 5: "01", 4: "00"}
 
 
 def test_root_strait_chain():
@@ -81,6 +81,42 @@ def test_runs_match_tree():
         ((1, 0, "strait", 1), (0, 1, "split", 2)),
         ((1, 0, "strait", 1), (0, 0, "split", 2)),
     ]
+
+
+CODE_CASES = [([0, 2], 2), ([2, 3, 4, 5], 3), ([0, 1], 3),
+              ([1, 4, 6, 7, 9, 12, 200, 201, 255], 8),
+              (list(np.random.default_rng(7).choice(1 << 16, 300, replace=False)), 16)]
+
+
+def decode(tree, code):
+    bits = iter(code)
+    while isinstance(tree, (Node, StraitNode)):
+        tree = tree.child if isinstance(tree, StraitNode) \
+            else tree.true_node if next(bits) == "1" else tree.false_node
+    assert next(bits, None) is None
+    return int(tree.value)
+
+
+def test_codes_unique_and_prefix_free():
+    for values, bit_count in CODE_CASES:
+        codes = sorted(make(values, bit_count).codes.values())
+        assert len(set(codes)) == len(codes)
+        assert not any(b.startswith(a) for a, b in zip(codes, codes[1:]))
+
+
+def test_code_length_is_split_count():
+    for values, bit_count in CODE_CASES:
+        coder = make(values, bit_count)
+        # runs and codes are both recorded in leaf order
+        for run, code in zip(coder.runs, coder.codes.values(), strict=True):
+            assert len(code) == sum(op.kind == "split" for op in run)
+
+
+def test_decode_round_trip():
+    for values, bit_count in CODE_CASES:
+        coder = make(values, bit_count)
+        for v, code in coder.codes.items():
+            assert decode(coder.tree, code) == int(v)
 
 
 def main():

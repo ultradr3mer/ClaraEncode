@@ -10,6 +10,18 @@ Fano-style decision tree over bit positions — constant bits ("straits") are
 serialized without lengthening the code, and the max-entropy-gain bit splits
 each node.
 
+The coder works directly on a `clarautils` `SliceView` over one root
+`Bitty`: `get_defined_bits()` finds straits, `rm_b` removes them,
+`get_bitwise_entropy()` + `group_by_bit` drive `find_split`, and
+`get_bit_indices()` gives absolute positions — nothing is unpacked into a
+bit matrix. Display strings (`'..01X.'`) are computed per node by
+`GainCoder.pattern` from the node's first root item. `codes[v]` is the real
+0/1 branch path (prefix-free; straits add no bits); `coder.tree` holds
+`StraitNode`s + original values at the leaves, `coder.node` is the split-only
+tree. Stats/plots (`print_stats`, `plot_*`) live in `claraenc/gain_stats.py`
+and are derived after the build from `coder.tree`/`.node`/`.runs`/`.straits`;
+the coder itself prints nothing.
+
 Everything else in `claraenc/` supports or feeds that coder:
 
 - `FlipSort.py` — bf16 sort+flip prepare step (`SortedFlippedAry`)
@@ -69,19 +81,24 @@ There is no build step; this is a plain-script Python project (no
 ## Conventions specific to this repo
 
 - Refactors to `GainCoder.py` must not change behavior/output.
-  `tests\compare_v0.py` was the parity harness for this (execs both files
-  in-memory with `coder.print()` patched on, diffs stdout + `.codes` +
-  `.node`). **Note:** the `backup/GainCoder_v0.py` baseline it compares
-  against was deleted from the repo once the refactor was verified
-  byte-identical — the script is kept as a reference for how that
-  comparison worked, but will currently error since `backup/` no longer
-  exists.
-- `claraenc/entropy.py` stays local — do not migrate it into `clarautils`.
-  Its LSB-first per-bit ordering is baked into historical v0 parity (split
-  tie-breaking), and float32 summation order (`sum()` vs `np.sum()`) affects
-  tie-breaking too, so keep entropy expressions verbatim. The file also
-  intentionally keeps dead code (commented-out gini experiments, a shadowed
-  `get_bitwise_entropy` definition) — don't "clean" this up.
+  `tests\compare_v0.py` is the parity harness (execs v0 from `backup/` and
+  the current file in-memory with `coder.print()` patched on, diffs stdout +
+  `.codes` + `.node`). Since the code fix, the **expected** result is:
+  stdout IDENTICAL except the final `avg_bits=` line, `codes: DIFFER`
+  (v0 built codes from split *indices*), `nodes: IDENTICAL`. Keep the patch
+  anchor lines in `GainCoder.py`'s `parse_from_np_array`/`__main__`
+  verbatim (`coder = GainCoder(..., display=TreePrinter())`, the two
+  `plot_*` lines, `parse_from_np_array(x, bits_to_take, name)`).
+- Split tie-breaking (v0 parity): `find_split` scans LSB index `i = 0..w-1`
+  with strict `>` from 0, entropies come from `NBitArray.get_bitwise_entropy`
+  reversed to LSB order **and made contiguous** (`lsb_entropy`), start sum
+  via Python `sum()`, group sums via `np.sum()`. Changing any of these can
+  flip ties. `Node.bit_idx` / `DefineBitOp.idx` stay LSB-relative to the
+  node's remaining bits; everything else is MSB-first.
+- `claraenc/entropy.py` stays local — do not migrate it into `clarautils`
+  (GainCoder no longer imports it). It intentionally keeps dead code
+  (commented-out gini experiments, a shadowed `get_bitwise_entropy`
+  definition) — don't "clean" this up.
 - `clarautils` bits are MSB-first (bit 0 = MSB) — the opposite of the usual
   LSB-first convention; keep this in mind whenever bit positions cross the
   `clarautils`/`claraenc` boundary.
@@ -106,25 +123,28 @@ There is no build step; this is a plain-script Python project (no
   `check_defined` ("Not all bits are defined"). Fixed in the sibling repo
   (widen to 64 bit, return int64) — **uncommitted in `F:\source\BitFlagArray`**.
   If GainCoder suddenly mis-detects straits, check `get_bits` first.
-- **In-repo renames.** `bit_value` became `value` on `BuildParams`, the
-  tree_printer events and `CommonNBitSc`; `RunOp` has `abs_pos` (no `idx`).
-  Fixed in `GainCoder.py`, `tree_printer.py`, `tests/test_tree.py`.
-- **v0 baseline restored** from `390f40b^` into `backup/` and
-  `tests/compare_v0.py` runs again (it patches v0's hardcoded data path in
-  memory). Result: stdout, `.codes` and `.node` IDENTICAL. A wider check on
-  five bins (16- and 32-bit reads) also gave identical codes/nodes/avg bits.
-  Note both sides share the same `clarautils`, so parity != absolute
-  correctness.
+- **GainCoder rewritten onto SliceView/NBitArray** (~570 → ~210 lines plus
+  `gain_stats.py`). Before the code fix, it was verified byte-identical to
+  the previous version (full stdout incl. all stats, codes, node + strait
+  tree, runs, straits) on input/post_attention layernorm (16/32 bit) and a
+  k_proj slice, and to v0 via `compare_v0.py`. `BuildParams`, `StraitDef`
+  (now `coder.straits: List[RunOp]`), `merge_str` & co. are gone.
+- **Code bug fixed (existed since v0).** `create_child` appended
+  `str(operation.idx)` (the split bit index) to the code where it should
+  have appended the branch bit: codes were not unique (e.g. 2,3,4,5 → all
+  "10") and two-digit indices counted as 2 bits. Now codes are 0/1 paths;
+  `test_tree.py` checks prefix-freeness, len == #splits, and a decode walk.
 - **Data root** is `D:\modelData` (`bins/`, `data/`); everything resolves it
   via `sandbox_path()` (`Huffman.py` was the last relative-path holdout).
-- **Compression vs entropy:** `average_bits()` is count-weighted and sits
-  ~1.5-4 bits above Shannon entropy H (e.g. layernorm 32-bit: 16.28 vs
-  11.00; post_attention_layernorm 16-bit: 7.01 vs 4.61). The tree is built
-  from unique values only — `get_next_split` never sees counts — so splits
-  ignore frequency. Untested hypothesis: count-weighting the gain closes
-  much of the gap.
-- **No decoder.** GainCoder is encode-only; lossless round-trip is not
-  verified. The tree + strait structure suffices to write one.
+- **Compression vs entropy** (corrected codes, layer 0, gain / Huffman / H):
+  input_layernorm 32b 11.62 / 11.00 / 11.00, 16b 11.10 / 10.18 / 10.15;
+  post_attention_layernorm 32b 10.77 / 7.69 / 7.66, 16b 7.82 / 4.11 / 4.09.
+  (The old 32-bit layernorm figure 16.28 was inflated by the code bug.) The
+  tree is built from unique values only — `find_split` never sees counts —
+  so splits ignore frequency. Untested hypothesis: count-weighting the gain
+  closes much of the gap.
+- **No full decoder.** `coder.tree` + codes decode (test `decode` walk), but
+  there is no serialized format / bitstream decoder yet.
 - **Known failing, untouched:** `tests/test_prob.py` (imports `ProbModel`
   from `claraenc.ProbCoder`, which no longer exports it — likely moved to
   `ProbCoder_refac.py`), and `clarautils/Test` collection errors.

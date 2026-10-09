@@ -1,5 +1,4 @@
-from collections import Counter
-from typing import NamedTuple, List, Dict
+from typing import NamedTuple, List
 
 import numpy as np
 from pathlib import Path
@@ -9,43 +8,14 @@ import sys
 if globals().get("__package__", "") in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-# from BitWriter import BitWriter
-from clarautils import Bitty, NBitArray, SliceView, build_bins_n_print
-from clarautils import get_bits, get_number, symbol_to_str, get_bitmask, get_indices
-from claraenc.entropy import get_bitwise_entropy
+from clarautils import Bitty, NBitArray, SliceView, get_bits, get_number, symbol_to_str
+from claraenc.gain_stats import print_stats, plot_bit_definition_order, plot_strait_counts
 from claraenc.tree_printer import TreePrinter, Char
 from claraenc.tree_printer import RootBegin, NodeBegin, Strait, NodeSplit, RootSplit, NodeEnd, Leaf
 from claraenc.sandbox_paths import sandbox_path
 
-class MultiBitDef(NamedTuple):
-    mask: int
-    bit: int
-    bit_count: int
-
-def get_bits_from_value(value: str):
-    def parse_char(c):
-        if c == '0':
-            return 0
-        elif c == '1':
-            return 1
-        else:
-            return 2
-
-    numeric_rep = np.array([parse_char(c) for c in reversed(value)], np.uint8)
-    range = np.arange(3)
-    mask = np.where(range.reshape((-1, 1)) == numeric_rep)[0]
-    return mask
-
-
-def get_bit_count(value: int):
-    return int(np.ceil(np.log2(value + 1)))
-
-# will be moved to clarautils
-def safe_iter(iter, default):
-    try:
-        return next(iter)
-    except StopIteration:
-        return default
+# Bit positions are MSB-first (clarautils) internally; `idx`/`bit_idx` in the
+# tree and the display stay LSB-relative to the node's remaining bits (v0).
 
 
 class DefineBitOp(NamedTuple):
@@ -63,77 +33,10 @@ class RunOp(NamedTuple):
     level: int
 
 
-class StraitDef(NamedTuple):
-    idx: int
-    bit: 1 | 0
-    antecendant: str
-
-    def get_bit_op(self) -> DefineBitOp:
-        return DefineBitOp(self.idx, self.bit)
-
-    def get_num_antecendant(self):
-        return get_bit_count(self.antecendant)
-
-    def __repr__(s):
-
-        return f"if {get_bit_count(s.antecendant)} op:{s.idx}={s.bit}"
-
 class EntropyDiff(NamedTuple):
     entropy_before: np.array
     entropy_after: np.array
     idx: int
-
-
-class BuildParams(NamedTuple):
-    data: NBitArray
-    level: int
-    code: str
-    value: str
-    operation: DefineBitOp | None
-    entropy: EntropyDiff | None
-    total_bit: int
-    remaining_bits: int
-    run: tuple
-
-    def get_commons(s):
-        level = s.level + 1
-        node_name = f"lvl:{level},{s.operation}"
-        code = s.code + str(s.operation.bit) if s.level > 0 else ''
-        value = "".join([str(s.operation.bit) if c == Char.branch
-                         else c
-                         for c in s.value])
-        return BuildParamsCommons(level, node_name, code, value)
-
-    def create_child(self, data, value, operation, entropy, keep_code=False, abs_op=None):
-        bit = operation.idx
-        return BuildParams(data=data,
-                           level=self.level + 1,
-                           code=self.code if keep_code else self.code + str(bit),
-                           value=value,
-                           operation=operation,
-                           entropy=entropy,
-                           total_bit=self.total_bit,
-                           remaining_bits=self.remaining_bits - 1,
-                           run=self.run if abs_op is None else self.run + (abs_op,))
-
-    @classmethod
-    def make_root(cls, data, bit_count):
-        return BuildParams(data=data,
-                           level=0,
-                           code='',
-                           value=Char.fill * bit_count,
-                           operation=None,
-                           entropy=None,
-                           total_bit=bit_count,
-                           remaining_bits=bit_count,
-                           run=())
-
-
-class BuildParamsCommons(NamedTuple):
-    level: int
-    node_name: str
-    code: str
-    value: np.array
 
 
 class Split(NamedTuple):
@@ -154,323 +57,123 @@ class StraitNode(NamedTuple):
     op: DefineBitOp
     child: "StraitNode | Node | np.generic"
 
-class GainCoder:
-    def merge_str(s, a, b):
-        iter_b = iter(b)
-        chars = [safe_iter(iter_b, 'E') if a_i == Char.fill else a_i for a_i in a]
-        return "".join(chars)
 
+def lsb_entropy(view: NBitArray):
+    # LSB-first and contiguous: keeps v0's summation order (split tie-breaking)
+    return np.ascontiguousarray(view.get_bitwise_entropy()[::-1])
+
+
+def find_split(view: NBitArray) -> Split:
+    width = view.get_bit_count()
+    begin = lsb_entropy(view)
+    begin_sum = sum(begin)
+    max_g, best, gains = 0, (0, [], []), []
+    for i in range(width):
+        groups = view.group_by_bit(width - 1 - i)
+        n_with, n_wout = groups[1].get_item_count(), groups[0].get_item_count()
+        with_e, wout_e = lsb_entropy(groups[1]), lsb_entropy(groups[0])
+        gain = ((begin_sum - np.sum(with_e)) * n_with + (begin_sum - np.sum(wout_e)) * n_wout) / (n_with + n_wout)
+        if gain > max_g:
+            max_g, best = gain, (i, with_e, wout_e)
+        gains.append(gain)
+    return Split(best[0], np.array(gains), begin, best[1], best[2])
+
+
+class GainCoder:
     def __init__(self, values, counts, bit_count, display=None):
-        self.bit_count = np.uint32(bit_count)
+        self.bit_count = int(bit_count)
         self.values = np.array(values)
         self.counts = np.array(counts)
         self.display = display
-        self.abs_straits: List[StraitDef] = []
-        self.runs = []
-        self.node, self.tree, self.avg_bits, self.codes = self._build()
-        self.leaf_ext, self.bins_ext = self.print_stats()
+        self.root = Bitty(self.values, max_bit=self.bit_count)
+        self.codes = {}
+        self.runs: List[tuple] = []
+        self.straits: List[RunOp] = []
+        self.depths = []
+        self.node, self.tree = self._build(SliceView(self.root))
+        self.avg_bits = np.average(self.depths)
 
     def emit(self, event):
         if self.display is not None:
             self.display.handle(event)
 
+    def pattern(self, ref, unknown, mark=None):
+        w = self.bit_count
+        return "".join(Char.branch if p == mark
+                       else Char.fill if p in unknown
+                       else str((ref >> (w - 1 - p)) & 1)
+                       for p in range(w))
+
+    def _build(self, view: SliceView, level=0, code='', run=(), op=None, entropy=None):
+        is_root = op is None
+        name = "root" if is_root else f"lvl:{level + 1},{op}"
+        ref = int(self.root.get_array()[view.get_item_indices()[0]])
+        unknown = set(view.get_bit_indices())
+        value = self.pattern(ref, unknown)
+        value_in = None if is_root else self.pattern(ref, unknown, mark=run[-1].abs_pos)
+
+        if view.get_item_count() == 1:
+            return self._leaf(view, ref, name, value_in, value, level, code, run)
+
+        self.emit(RootBegin(value) if is_root else NodeBegin(name, value_in, value, entropy))
+
+        width, positions = view.get_bit_count(), view.get_bit_indices()
+        strait_ops = []
+        defined = view.get_defined_bits()
+        for d in defined:
+            level += 1
+            strait_op = DefineBitOp(width - 1 - d.idx, d.bit)
+            unknown.discard(positions[d.idx])
+            after = self.pattern(ref, unknown)
+            self.emit(Strait(strait_op, value, after))
+            value = after
+            strait_run = RunOp(positions[d.idx], d.bit, 'strait', level)
+            self.straits.append(strait_run)
+            run += (strait_run,)
+            strait_ops.append(strait_op)
+        if defined:
+            view = view.rm_b([d.idx for d in defined])
+
+        split = find_split(view)
+        msb = view.get_bit_count() - 1 - split.bit_idx
+        split_pos = view.get_bit_indices()[msb]
+        out = self.pattern(ref, unknown, mark=split_pos)
+        self.emit(RootSplit(value, out, np.max(split.gains)) if is_root
+                  else NodeSplit(split.bit_idx, value, out))
+
+        groups = view.group_by_bit(msb)
+        (t_node, t_tree), (f_node, f_tree) = [
+            self._build(groups[bit], level + 1,
+                        code + str(bit),
+                        run + (RunOp(split_pos, bit, 'split', level + 1),),
+                        DefineBitOp(split.bit_idx, bit),
+                        EntropyDiff(split.entropy_begin, after_e, split.bit_idx))
+            for bit, after_e in ((1, split.entropy_after_with), (0, split.entropy_after_wout))]
+
+        bit_idx = None if is_root else split.bit_idx
+        node, tree = Node(bit_idx, t_node, f_node), Node(bit_idx, t_tree, f_tree)
+        for strait_op in reversed(strait_ops):
+            tree = StraitNode(strait_op, tree)
+        self.emit(NodeEnd(name))
+        return node, tree
+
+    def _leaf(self, view, ref, name, value_in, value, level, code, run):
+        leaf_value = view.get_array()[0]
+        leaf_bits = get_bits(leaf_value, view.get_bit_count())
+        full = self.pattern(ref, ())
+        self.emit(Leaf(name, value_in, value, full, leaf_value, symbol_to_str(leaf_bits)))
+        number = get_number(get_bits(full))
+        self.codes[number.value] = code
+        self.depths.append(level + 1)
+        self.runs.append(run)
+        return get_number(leaf_bits), number
+
     def get_avg_bits(self):
         return self.avg_bits
-
-    def get_next_split(s, view: NBitArray, bit_count):
-        data = view.get_array()
-        begin_entropy_list = get_bitwise_entropy(data, bit_count)
-        begin_entropy = sum(begin_entropy_list)
-        max_g = 0
-        max_with_entro = []
-        max_wout_entro = []
-        max_bit_idx = 0
-        increases = []
-        for i in range(bit_count):
-            groups = view.group_by_bit(bit_count - 1 - i)
-            with_parts = groups[1].get_array()
-            wout_parts = groups[0].get_array()
-            with_e_list = get_bitwise_entropy(with_parts, bit_count - 1)
-            wout_e_list = get_bitwise_entropy(wout_parts, bit_count - 1)
-            with_g = begin_entropy - np.sum(with_e_list)
-            wout_g = begin_entropy - np.sum(wout_e_list)
-            gain = (with_g * len(with_parts) + wout_g * len(wout_parts)) / (len(with_parts) + len(wout_parts))
-            if gain > max_g:
-                max_with_entro = with_e_list
-                max_wout_entro = wout_e_list
-                max_bit_idx = i
-                max_g = gain
-            increases.append(gain)
-        return Split(bit_idx=max_bit_idx,
-                     gains=np.array(increases),
-                     entropy_begin=begin_entropy_list,
-                     entropy_after_with=max_with_entro,
-                     entropy_after_wout=max_wout_entro)
-
-    def _build(self):
-        depths = []
-        codes = {}
-        self.leaf_len = []
-        self.flag_len = []
-        self.node_count = 0
-        self.strait_count = 0
-        self.leaf_count = 0
-
-        def bit_str(idx, bit: int | str, l: int):
-            chars = [Char.fill if i != idx
-                     else str(bit) if isinstance(bit, int)
-                     else bit
-                     for i in reversed(range(l))]
-            return "".join(chars)
-
-        def get_abs_positions(view: SliceView) -> List[int]:
-            return get_indices(view.bit_slice, int(self.bit_count))
-
-        def get_defined_ops(view: NBitArray) -> List[DefineBitOp]:
-            bit_count = view.get_bit_count()
-            bits = view.get_bitwise()
-            mins = np.min(bits, axis=0)
-            maxs = np.max(bits, axis=0)
-            return [DefineBitOp(bit_count - 1 - col, 1 if mins[col] > 0 else 0)
-                    for col in range(bit_count) if mins[col] == maxs[col]]
-
-        def check_defined(params: BuildParams, value: str | None = None):
-            value = params.value if value is None else value
-
-            defined = get_defined_ops(params.data)
-            if len(defined) == 0:
-                return []
-
-            result = []
-            entry_bits = params.remaining_bits
-            abs_positions = get_abs_positions(params.data)
-
-            for op in defined:
-                abs_pos = int(abs_positions[entry_bits - 1 - op.idx])
-                self.abs_straits.append(StraitDef(abs_pos, op.bit, value))
-                value = self.merge_str(value, bit_str(op.idx, bit=op.bit, l=params.remaining_bits))
-                data = params.data.rm_b(params.remaining_bits - 1 - op.idx)
-                params = params.create_child(data=data,
-                                             operation=op,
-                                             value=value,
-                                             entropy=None,
-                                             keep_code=True,
-                                             abs_op=RunOp(abs_pos, op.bit, 'strait', params.level + 1))
-
-                self.flag_len.append(len(get_bits(op.idx)))
-                self.strait_count += 1
-                result.append(params)
-
-            if len(get_defined_ops(params.data)) > 0:
-                raise Exception("Not all bits are defined")
-
-            return result
-
-        def build_recursive(params: BuildParams):
-            if len(params.data) == 1:
-                leaf_bits, number = create_leaf(params)
-                return get_number(leaf_bits), number
-
-            level, node_name, code, value = params.get_commons()
-            self.emit(NodeBegin(node_name, params.value, value, params.entropy))
-
-            strait_params = []
-            prev_value = value
-            for p in check_defined(params, value):
-                self.emit(Strait(p.operation, prev_value, p.value))
-                strait_params.append(p)
-                prev_value = p.value
-                params = p
-            value = prev_value
-
-            split = self.get_next_split(params.data, params.remaining_bits)
-            out_val = self.merge_str(value, bit_str(split.bit_idx, bit=Char.branch, l=params.remaining_bits))
-            self.emit(NodeSplit(split.bit_idx, value, out_val))
-
-            node, tree = create_node(out_val, params, split, split.bit_idx)
-            for p in reversed(strait_params):
-                tree = StraitNode(p.operation, tree)
-            self.emit(NodeEnd(node_name))
-            return node, tree
-
-        def create_node(out_val, params, split, value: int | None = None):
-            if value is not None:
-                self.flag_len.append(len(get_bits(value)))
-
-            abs_positions = get_abs_positions(params.data)
-            split_msb = params.remaining_bits - 1 - split.bit_idx
-            abs_pos = int(abs_positions[split_msb])
-            split_level = params.level + 1
-            groups = params.data.group_by_bit(split_msb)
-
-            true_node, true_tree = build_recursive(params.create_child(groups[1], out_val,
-                                                                      operation=DefineBitOp(split.bit_idx, bit=1),
-                                                                      entropy=EntropyDiff(split.entropy_begin,
-                                                                                          split.entropy_after_with,
-                                                                                          split.bit_idx),
-                                                                      abs_op=RunOp(abs_pos, 1, 'split', split_level)))
-            false_node, false_tree = build_recursive(params.create_child(groups[0], out_val,
-                                                                         operation=DefineBitOp(split.bit_idx, bit=0),
-                                                                         entropy=EntropyDiff(split.entropy_begin,
-                                                                                             split.entropy_after_wout,
-                                                                                             split.bit_idx),
-                                                                         abs_op=RunOp(abs_pos, 0, 'split', split_level)))
-            self.node_count += 1
-            return Node(value, true_node, false_node), Node(value, true_tree, false_tree)
-
-        def create_leaf(params):
-            nonlocal codes
-            level, node_name, code, value = params.get_commons()
-            depths.append(level)
-            self.runs.append(params.run)
-
-            leaf_value = params.data.get_array()[0]
-            leaf_bits = get_bits(leaf_value, params.remaining_bits)
-            leaf_str = symbol_to_str(leaf_bits)
-            self.leaf_len.append(len(get_bits(leaf_value)))
-            full = self.merge_str(value, leaf_str)
-            self.emit(Leaf(node_name, params.value, value, full, leaf_value, leaf_str))
-
-            bits = get_bits(full)
-            number = get_number(bits)
-            codes[number.value] = params.code
-
-            self.leaf_count += 1
-            return leaf_bits, number
-
-        def make_root(data):
-            root = "root"
-            bit_count = int(self.bit_count)
-            params = BuildParams.make_root(data=SliceView(Bitty(data, max_bit=bit_count)),
-                                           bit_count=bit_count)
-
-            self.emit(RootBegin(params.value))
-
-            strait_params = []
-            prev_value = params.value
-            for p in check_defined(params):
-                self.emit(Strait(p.operation, prev_value, p.value))
-                strait_params.append(p)
-                prev_value = p.value
-                params = p
-
-            split = self.get_next_split(params.data, params.remaining_bits)
-            out_val = self.merge_str(params.value, bit_str(split.bit_idx, bit=Char.branch, l=params.remaining_bits))
-            self.emit(RootSplit(params.value, out_val, np.max(split.gains)))
-
-            node, tree = create_node(out_val, params, split)
-            for p in reversed(strait_params):
-                tree = StraitNode(p.operation, tree)
-            self.emit(NodeEnd(root))
-            return node, tree
-
-        node, tree = make_root(self.values)
-
-        bit_count = int(self.bit_count)
-        self.strait_levels = [[] for _ in range(bit_count)]
-        self.split_levels = [[] for _ in range(bit_count)]
-        for run in self.runs:
-            for op in run:
-                if op.kind == 'strait':
-                    self.strait_levels[op.abs_pos].append(op.level)
-                else:
-                    self.split_levels[op.abs_pos].append(op.level)
-
-        self.abs_strait_pos = np.array([s.idx for s in self.abs_straits], dtype=np.uint32)
-        self.abs_split_pos = np.array([op.abs_pos for r in self.runs for op in r if op.kind == 'split'],
-                                      dtype=np.uint32)
-
-        return node, tree, np.average(depths), codes
-
-    def print_stats(self):
-        print("==Data==")
-        print("Codes:", len(self.codes), "Nodes:", self.node_count,
-              "Straits:", self.strait_count, "Leafs:", self.leaf_count)
-        print("==Leafs==")
-        leaf_ext_delta = build_bins_n_print(self.leaf_len, [45, 90, 100])
-        print("==Flags==")
-        bins_ext_delta = build_bins_n_print(self.flag_len, [45, 90, 100]) if len(self.flag_len) else 0
-        print("==AbsStraits==")
-        if len(self.abs_strait_pos):
-            build_bins_n_print(self.abs_strait_pos, [45, 90, 100])
-        strait_rules = Counter(((int(s.idx), int(s.bit)) for s in self.abs_straits))
-        print(f"Rules: {len(strait_rules)} unique of {len(self.abs_straits)}")
-        print("Top:", ", ".join(f"{p}={b}×{c}" for (p, b), c in strait_rules.most_common(5)))
-        self.analyze_strait_values()
-        print("==AbsSplits==")
-        if len(self.abs_split_pos):
-            build_bins_n_print(self.abs_split_pos, [45, 90, 100])
-        return leaf_ext_delta, bins_ext_delta
-
-    def analyze_strait_values(s):
-        association_rules: Dict[DefineBitOp,list[str]] = {}
-        for sd in s.abs_straits:
-            # sd.
-            # association_rules
-            pass
-        # if not s.abs_straits or not s.runs:
-        #     return
-        # bit_count = int(s.bit_count)
-        # contexts = {}
-        # for sd in s.abs_straits:
-        #     contexts.setdefault((int(sd.abs_pos), int(sd.bit)), []).append(sd.determined)
-        #
-        # hit = {rule: np.zeros(len(s.runs), dtype=bool) for rule in contexts}
-        # for i, run in enumerate(s.runs):
-        #     for op in run:
-        #         if op.kind == 'strait':
-        #             hit[(int(op.abs_pos), int(op.bit))][i] = True
-        #
-        # leaf_values = np.fromiter(s.codes.keys(), dtype=np.uint32, count=len(s.runs))
-        # g_and = int(np.bitwise_and.reduce(leaf_values))
-        # g_or = int(np.bitwise_or.reduce(leaf_values))
-        # global_const = set(p for p in range(bit_count)
-        #                    if (g_and >> (bit_count - 1 - p)) & 1
-        #                    or not (g_or >> (bit_count - 1 - p)) & 1)
-        #
-        # print("==StraitValueCommon==")
-        # print("Dataset constants:",
-        #       [(p, int((g_and >> (bit_count - 1 - p)) & 1)) for p in sorted(global_const)])
-        # implied = Counter()
-        # standalone = 0
-        # for (pos, bit), ctxs in sorted(contexts.items(), key=lambda kv: -len(kv[1])):
-        #     group = leaf_values[hit[(pos, bit)]]
-        #     and_all = int(np.bitwise_and.reduce(group))
-        #     or_all = int(np.bitwise_or.reduce(group))
-        #     common = "".join('1' if (and_all >> (bit_count - 1 - p)) & 1
-        #                      else '0' if not (or_all >> (bit_count - 1 - p)) & 1
-        #                      else Char.fill
-        #                      for p in range(bit_count))
-        #     assert common[pos] == str(bit), f"rule {pos}={bit} not constant in its own value group"
-        #     implies = [(p, b) for (p, b) in contexts
-        #                if p != pos and p not in global_const and common[p] == str(b)]
-        #     if implies:
-        #         implied.update(implies)
-        #     else:
-        #         standalone += 1
-        #     print(f"  {pos}={bit} ×{len(ctxs)} leaves={len(group)} ctx={len(set(ctxs))} "
-        #           f"const={bit_count - common.count(Char.fill)} common='{common}' "
-        #           f"implies={','.join(f'{p}={b}' for p, b in implies) or '-'}")
-        # print(f"Standalone: {standalone} of {len(contexts)} rules")
-        # if implied:
-        #     print("Most implied:", ", ".join(f"{p}={b}×{c}" for (p, b), c in implied.most_common(5)))
 
     def average_bits(self):
         total = sum(self.counts)
         return sum(len(self.codes[v]) * c for v, c in zip(np.array(self.values), self.counts)) / total
-
-    def compress_tree(self):
-        # bw = BitWriter()
-        # layer = [self.node.true_node, self.node.false_node]
-        # while len(layer) > 0:
-        #     for n in layer:
-        #         # if isinstance(n, np.generic):
-        #         #     bw.put(False)
-        #         #     bw.put(n, length=self.leaf_ext)
-        #         # else:
-        #         #     bw.put(True)
-        #         n.bit
-                pass
 
     def compression_ratio(self, original_bits=16):
         return self.average_bits() / original_bits
@@ -479,67 +182,17 @@ class GainCoder:
         if self.display is not None:
             self.display.print()
 
-def plot_bit_definition_order(coder):
-    strait_qs = np.array([np.percentile(p, [25, 50, 75]) if len(p) > 0 else [0, 0, 0]
-                          for p in coder.strait_levels])
-    split_qs = np.array([np.percentile(p, [25, 50, 75]) if len(p) > 0 else [0, 0, 0]
-                         for p in coder.split_levels])
-    strait_order = np.argsort(strait_qs.mean(axis=1))
-    split_order = np.argsort(split_qs.mean(axis=1))
-    print(f"AbsStraits sorted (pos, [q25, q50, q75]): "
-          f"{[(int(p), q.tolist()) for p, q in zip(strait_order, strait_qs[strait_order])]}")
-    print(f"AbsSplits sorted (pos, [q25, q50, q75]): "
-          f"{[(int(p), q.tolist()) for p, q in zip(split_order, split_qs[split_order])]}")
-
-    import matplotlib.pyplot as plt
-    fig, (ax_straits, ax_splits) = plt.subplots(2, 1, figsize=(12, 8))
-    for ax, levels, order, title in ((ax_straits, coder.strait_levels, strait_order, "Strait levels per abs bit pos"),
-                                     (ax_splits, coder.split_levels, split_order, "Split levels per abs bit pos")):
-        ax.boxplot([levels[p] for p in order])
-        ax.set_xticks(np.arange(1, len(order) + 1), [int(p) for p in order])
-        ax.set_title(title)
-        ax.set_xlabel("abs bit pos")
-        ax.set_ylabel("level")
-    fig.tight_layout()
-    fig.savefig("levels_boxplot.png")
-    plt.show()
-
-def plot_strait_counts(coder):
-    bit_count = int(coder.bit_count)
-    s_counts = np.zeros((2, bit_count), dtype=np.uint32)
-    for s in coder.abs_straits:
-        s_counts[s.bit, s.idx] += 1
-    print(f"Strait count bins (pos: bit0/bit1): "
-          f"{[(p, int(s_counts[0, p]), int(s_counts[1, p])) for p in range(bit_count) if s_counts[:, p].any()]}")
-
-    import matplotlib.pyplot as plt
-    fig, ax = plt.subplots(figsize=(12, 5))
-    positions = np.arange(bit_count)
-    width = 0.4
-    ax.bar(positions - width / 2, s_counts[0], width, label="bit=0")
-    ax.bar(positions + width / 2, s_counts[1], width, label="bit=1")
-    ax.set_title("Strait counts per abs bit pos and bit value")
-    ax.set_xlabel("abs bit pos")
-    ax.set_ylabel("count")
-    ax.legend()
-    fig.tight_layout()
-    fig.savefig("strait_counts.png")
-    plt.show()
-
 
 def parse_from_np_array(x, bits_to_take, name):
     values, counts = np.unique(x, return_counts=True)
 
-    values = values.view()
-
-    num_possible = np.iinfo(np.uint32).max + 1
     num_unique = len(values)
-    ratio = num_unique / num_possible
-
-    bit_req = get_bit_count(num_unique)
+    ratio = num_unique / (np.iinfo(np.uint32).max + 1)
+    bit_req = int(np.ceil(np.log2(num_unique + 1)))
     print(f"{name}: {num_unique}({bit_req:.3f} bits) unique, ratio={ratio:.6f}")
 
     coder = GainCoder(values, counts, bits_to_take, display=TreePrinter())
+    print_stats(coder)
 
     avg_bits = coder.average_bits()
     ratio_bits = coder.compression_ratio(bits_to_take)
@@ -552,19 +205,12 @@ def parse_from_np_array(x, bits_to_take, name):
     print("END")
     return coder
 
+
 if __name__ == "__main__":
     base = sandbox_path("bins")
 
-    bits_to_shift = 0
     bits_to_take = 32
-    mask = get_bitmask(bits_to_take)
-    num_possible = np.pow(2, bits_to_take)
-    # for i in range(1):
     for path in base.glob("model.layers.0.input_layernorm.weight.bin"):
-        with open(path, "rb") as f:
-            buffer = f.read()
         name = path.name
-
-        x = np.frombuffer(buffer, dtype=np.uint32)
-
+        x = np.frombuffer(path.read_bytes(), dtype=np.uint32)
         parse_from_np_array(x, bits_to_take, name)
