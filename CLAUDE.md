@@ -61,6 +61,7 @@ numbering and intentionally-verbatim error strings/typos).
 ```powershell
 python claraenc\GainCoder.py                    # coder demo, reads a .bin via claraenc/sandbox_paths.py
 python tests\test_tree.py                       # standalone test script (plain asserts, run directly)
+python tests\test_tree_writer.py                # tree writer round trip + size report on real bins
 $env:PYTHONUTF8='1'; python tests\compare_v0.py # v0 baseline parity check
 pytest tests\test_prob.py                       # a subset of tests use real pytest (fixtures/parametrize)
 ```
@@ -136,15 +137,33 @@ There is no build step; this is a plain-script Python project (no
   `test_tree.py` checks prefix-freeness, len == #splits, and a decode walk.
 - **Data root** is `D:\modelData` (`bins/`, `data/`); everything resolves it
   via `sandbox_path()` (`Huffman.py` was the last relative-path holdout).
-- **Compression vs entropy** (corrected codes, layer 0, gain / Huffman / H):
-  input_layernorm 32b 11.62 / 11.00 / 11.00, 16b 11.10 / 10.18 / 10.15;
-  post_attention_layernorm 32b 10.77 / 7.69 / 7.66, 16b 7.82 / 4.11 / 4.09.
-  (The old 32-bit layernorm figure 16.28 was inflated by the code bug.) The
-  tree is built from unique values only — `find_split` never sees counts —
-  so splits ignore frequency. Untested hypothesis: count-weighting the gain
-  closes much of the gap.
-- **No full decoder.** `coder.tree` + codes decode (test `decode` walk), but
-  there is no serialized format / bitstream decoder yet.
+- **Concept (from Clara):** code bits are value bits — each split branch bit
+  is the value's bit at that position, so every split/strait shrinks the
+  bits still to define by one. Straits pull bits shared by all leaves below
+  a node up into the tree (defined once for many leaves); only the residual
+  drops into the leaf. So `average_bits()` (code length) alone is NOT
+  comparable to Huffman/H — compare total size (tree + stream) instead.
+- **Tree writer** (`claraenc/tree_writer.py`, clarautils `BitWriter`/
+  `BitReader`): layer-wise BFS, nodes dock by order (no pointers), each node
+  tracks `rem` (positions still undefined): type prefix code (most frequent
+  kind = 1 bit, skipped when `rem` empty), split = index into `rem` in
+  `ceil(log2(len(rem)))` bits, strait = index + value bit, leaf = residual
+  bits at `rem`; then the code stream. `encode`/`decode` round-trip is
+  verified lossless (`tests/test_tree_writer.py`). `GainCoder.root_split_idx`
+  exists because the root `Node` keeps `bit_idx=None` (v0 parity).
+- **Measured totals** (layer 0, bits/item, total incl. tree vs Huffman code +
+  `uniq×width` dict; raw = width):
+  input_layernorm 32b 37.16 vs 42.98 (tree 52.3k: strait_pos 18.8k,
+  type 13.6k, leaf 7.9k, split_pos 6.5k, strait_bit 5.4k; stream 23.8k);
+  16b 13.06 vs 16.64; post_attention 32b 13.19 vs 15.16; 16b 8.07 vs 4.62.
+  Gain beats Huffman+dict except on the repetitive 16b post_attention, where
+  the stream dominates (splits ignore counts — count-weighting hypothesis).
+  On layernorm 32b the total is still above raw (1.16×): straits are the
+  main tree cost.
+- **Measured potentials:** a strait at the same position directly below
+  both children of a split is always inverted (constant in each child, not
+  in the parent) — 306 pairs / ~1.4k bits on layernorm 32b, small elsewhere.
+  Leaf residual table + ids is worse than inline residuals on all four bins.
 - **Known failing, untouched:** `tests/test_prob.py` (imports `ProbModel`
   from `claraenc.ProbCoder`, which no longer exports it — likely moved to
   `ProbCoder_refac.py`), and `clarautils/Test` collection errors.
