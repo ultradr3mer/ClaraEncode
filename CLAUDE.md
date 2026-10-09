@@ -90,7 +90,7 @@ There is no build step; this is a plain-script Python project (no
   `__package__` is empty so `from claraenc...` imports resolve either way.
 - Demo/test data lives outside the repo in a local `modelCompression`
   sandbox (bin files like `model.layers.0.input_layernorm.weight.bin`).
-  Its root differs per machine (Windows dev box vs Steam Deck), so every
+  Its root differs per machine (Windows dev box (`D:\modelData`, with `bins/` and `data/`) vs Steam Deck), so every
   call site resolves it through `claraenc/sandbox_paths.py::sandbox_path()`
   instead of a hardcoded string — add a new machine's root there, not at
   the call site. Several tests (`test_merge_sort.py`'s `test_real_data`,

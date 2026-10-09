@@ -38,6 +38,12 @@ V0_PATCHES = [
     ("# coder.print()", "coder.print()"),
 ]
 
+V0_ONLY_PATCHES = [
+    # baseline hardcodes its data path; point it at the resolved sandbox
+    (r'base = Path("F:\\source\\sandbox314\\modelCompression\\bins")',
+     'base = __import__("claraenc.sandbox_paths", fromlist=["x"]).sandbox_path("bins")'),
+]
+
 NEW_PATCHES = V0_PATCHES + [
     ("coder = GainCoder(values, counts, bits_to_take, display=TreePrinter())",
      "coder = GainCoder(values, counts, bits_to_take, display=TreePrinter(realtime=True))"),
@@ -108,7 +114,7 @@ def first_diff(a: str, b: str):
 
 
 def main():
-    out_v0, coder_v0, t_v0 = run(V0, V0_PATCHES)
+    out_v0, coder_v0, t_v0 = run(V0, V0_PATCHES + V0_ONLY_PATCHES)
     out_new, coder_new, t_new = run(NEW, NEW_PATCHES)
 
     print(f"v0:  {len(out_v0):,} chars, {t_v0:.1f}s")

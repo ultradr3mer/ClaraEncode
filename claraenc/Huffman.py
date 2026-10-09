@@ -1,9 +1,14 @@
 import heapq
 import itertools
+import sys
 from pathlib import Path
 
 import numpy as np
 
+if globals().get("__package__", "") in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from claraenc.sandbox_paths import sandbox_path
 from clarautils import get_bitmask
 
 
@@ -85,7 +90,7 @@ def plot(c,title):
 
 
 if __name__ == "__main__":
-    base = Path("bins")
+    base = sandbox_path("bins")
     bits_to_take = 8
     bits_to_shift = 7
     mask = get_bitmask(bits_to_take)
