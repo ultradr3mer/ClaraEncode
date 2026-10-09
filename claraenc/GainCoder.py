@@ -277,9 +277,9 @@ class GainCoder:
             strait_params = []
             prev_value = value
             for p in check_defined(params, value):
-                self.emit(Strait(p.operation, prev_value, p.bit_value))
+                self.emit(Strait(p.operation, prev_value, p.value))
                 strait_params.append(p)
-                prev_value = p.bit_value
+                prev_value = p.value
                 params = p
             value = prev_value
 
@@ -329,7 +329,7 @@ class GainCoder:
             leaf_str = symbol_to_str(leaf_bits)
             self.leaf_len.append(len(get_bits(leaf_value)))
             full = self.merge_str(value, leaf_str)
-            self.emit(Leaf(node_name, params.bit_value, value, full, leaf_value, leaf_str))
+            self.emit(Leaf(node_name, params.value, value, full, leaf_value, leaf_str))
 
             bits = get_bits(full)
             number = get_number(bits)
@@ -349,9 +349,9 @@ class GainCoder:
             strait_params = []
             prev_value = params.value
             for p in check_defined(params):
-                self.emit(Strait(p.operation, prev_value, p.bit_value))
+                self.emit(Strait(p.operation, prev_value, p.value))
                 strait_params.append(p)
-                prev_value = p.bit_value
+                prev_value = p.value
                 params = p
 
             split = self.get_next_split(params.data, params.remaining_bits)
@@ -372,12 +372,12 @@ class GainCoder:
         for run in self.runs:
             for op in run:
                 if op.kind == 'strait':
-                    self.strait_levels[op.idx].append(op.level)
+                    self.strait_levels[op.abs_pos].append(op.level)
                 else:
-                    self.split_levels[op.idx].append(op.level)
+                    self.split_levels[op.abs_pos].append(op.level)
 
         self.abs_strait_pos = np.array([s.idx for s in self.abs_straits], dtype=np.uint32)
-        self.abs_split_pos = np.array([op.idx for r in self.runs for op in r if op.kind == 'split'],
+        self.abs_split_pos = np.array([op.abs_pos for r in self.runs for op in r if op.kind == 'split'],
                                       dtype=np.uint32)
 
         return node, tree, np.average(depths), codes

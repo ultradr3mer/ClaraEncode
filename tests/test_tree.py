@@ -30,7 +30,7 @@ def plain(tree):
         return ("S", tree.op.idx, tree.op.bit, plain(tree.child))
     if isinstance(tree, Node):
         return ("N", tree.bit_idx, plain(tree.true_node), plain(tree.false_node))
-    return ("L", int(tree.bit_value))
+    return ("L", int(tree.value))
 
 
 def test_strait_above_root_split():
