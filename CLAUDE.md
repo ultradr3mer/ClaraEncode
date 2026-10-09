@@ -96,3 +96,41 @@ There is no build step; this is a plain-script Python project (no
   the call site. Several tests (`test_merge_sort.py`'s `test_real_data`,
   etc.) skip gracefully with a printed message when the resolved file is
   missing rather than failing.
+
+## Status and findings (last session)
+
+- **Dependency regression fixed.** `clarautils.BitInfo.from_value` (BITS
+  mode) cast unsigned arrays to a same-width signed type before shifting, so
+  values like 128 in a uint32 array became int8 -128 and sign-extended
+  (`get_bits` returned `[1,1,0,...]` for 128 in 9 bits). That broke
+  `check_defined` ("Not all bits are defined"). Fixed in the sibling repo
+  (widen to 64 bit, return int64) — **uncommitted in `F:\source\BitFlagArray`**.
+  If GainCoder suddenly mis-detects straits, check `get_bits` first.
+- **In-repo renames.** `bit_value` became `value` on `BuildParams`, the
+  tree_printer events and `CommonNBitSc`; `RunOp` has `abs_pos` (no `idx`).
+  Fixed in `GainCoder.py`, `tree_printer.py`, `tests/test_tree.py`.
+- **v0 baseline restored** from `390f40b^` into `backup/` and
+  `tests/compare_v0.py` runs again (it patches v0's hardcoded data path in
+  memory). Result: stdout, `.codes` and `.node` IDENTICAL. A wider check on
+  five bins (16- and 32-bit reads) also gave identical codes/nodes/avg bits.
+  Note both sides share the same `clarautils`, so parity != absolute
+  correctness.
+- **Data root** is `D:\modelData` (`bins/`, `data/`); everything resolves it
+  via `sandbox_path()` (`Huffman.py` was the last relative-path holdout).
+- **Compression vs entropy:** `average_bits()` is count-weighted and sits
+  ~1.5-4 bits above Shannon entropy H (e.g. layernorm 32-bit: 16.28 vs
+  11.00; post_attention_layernorm 16-bit: 7.01 vs 4.61). The tree is built
+  from unique values only — `get_next_split` never sees counts — so splits
+  ignore frequency. Untested hypothesis: count-weighting the gain closes
+  much of the gap.
+- **No decoder.** GainCoder is encode-only; lossless round-trip is not
+  verified. The tree + strait structure suffices to write one.
+- **Known failing, untouched:** `tests/test_prob.py` (imports `ProbModel`
+  from `claraenc.ProbCoder`, which no longer exports it — likely moved to
+  `ProbCoder_refac.py`), and `clarautils/Test` collection errors.
+  `tests/test_bf16.py` passes again with `backup/` restored.
+- **Next idea:** strait dedup — a global rule table outside the tree (5441
+  strait slots collapsed to 56 unique rules).
+- Python: use `F:\source\ClaraEncode\.venv\Scripts\python.exe` (the
+  default `python` has no numpy). `notes/` holds scratch design notes
+  (`IndexSort.md`, `ary.md`).
