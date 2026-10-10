@@ -488,7 +488,7 @@ for path in base.glob("model.layers.0.input_layernorm.weight.bin"):
     avg_bits = coder.average_bits()
     ratio_bits = coder.compression_ratio(bits_to_take)
 
-    # coder.print()
+    coder.print()
 
     print(f"{name}: avg_bits={avg_bits:.3f}, compression={ratio_bits:.3f}, {avg_bits - bits_to_take:.3f}")
     print("END")
