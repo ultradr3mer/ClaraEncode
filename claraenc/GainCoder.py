@@ -13,6 +13,7 @@ from claraenc.gain_stats import print_stats, plot_bit_definition_order, plot_str
 from claraenc.tree_printer import TreePrinter, Char
 from claraenc.tree_printer import RootBegin, NodeBegin, Strait, NodeSplit, RootSplit, NodeEnd, Leaf
 from claraenc.sandbox_paths import sandbox_path
+from claraenc.tree_writer import size_report
 
 # Bit positions are MSB-first (clarautils) internally; `idx`/`bit_idx` in the
 # tree and the display stay LSB-relative to the node's remaining bits (v0).
@@ -135,7 +136,9 @@ class GainCoder:
             view = view.rm_b([d.idx for d in defined])
 
         split = find_split(view)
-        msb = view.get_bit_count() - 1 - split.bit_idx
+        if is_root:
+            self.root_split_idx = split.bit_idx  # root Node keeps bit_idx=None (v0 parity)
+        msb =view.get_bit_count() - 1 - split.bit_idx
         split_pos = view.get_bit_indices()[msb]
         out = self.pattern(ref, unknown, mark=split_pos)
         self.emit(RootSplit(value, out, np.max(split.gains)) if is_root
@@ -213,4 +216,5 @@ if __name__ == "__main__":
     for path in base.glob("model.layers.0.input_layernorm.weight.bin"):
         name = path.name
         x = np.frombuffer(path.read_bytes(), dtype=np.uint32)
-        parse_from_np_array(x, bits_to_take, name)
+        coder = parse_from_np_array(x, bits_to_take, name)
+        size_report(coder, x)
