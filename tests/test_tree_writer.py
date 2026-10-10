@@ -60,6 +60,31 @@ def test_read_tree_matches_codes():
         assert {v: c for c, v in table.items()} == {int(v): c for v, c in coder.codes.items()}
 
 
+class FakeLen:
+    def __init__(self, n):
+        self.n = n
+
+    def __len__(self):
+        return self.n
+
+
+def test_item_count_limit():
+    coder = make(np.array([0, 2]), 2)
+    try:
+        encode(coder, FakeLen(1 << 32))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("2**32 items must be rejected by the 32-bit header field")
+    # the largest count that fits gets past the check (fails later on the fake items)
+    try:
+        encode(coder, FakeLen((1 << 32) - 1))
+    except ValueError:
+        raise AssertionError("2**32 - 1 items fit the header field")
+    except Exception:
+        pass
+
+
 def test_real_data():
     path = sandbox_path("bins", "model.layers.0.input_layernorm.weight.bin")
     if not path.exists():
@@ -72,7 +97,8 @@ def test_real_data():
         size_report(coder, x)  # asserts the round trip
 
 
-TESTS = [test_hand_checked_tiny, test_round_trip, test_read_tree_matches_codes, test_real_data]
+TESTS = [test_hand_checked_tiny, test_round_trip, test_read_tree_matches_codes, test_item_count_limit,
+         test_real_data]
 
 if __name__ == "__main__":
     for t in TESTS:

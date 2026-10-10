@@ -1,7 +1,7 @@
 """Bitwise serialization of a GainCoder tree + code stream.
 
 Layout (MSB-first, clarautils BitWriter):
-  header  N:32  width-1:6 (widths 1..64)  one_bit_kind:2
+  header  N:32 (< 2**32 items)  width-1:6 (widths 1..64)  one_bit_kind:2
   tree    breadth-first; each node docks onto the previous layer by order
           (split -> 2 children (1 first), strait -> 1, leaf -> 0).
           Every node carries `rem`, the MSB-ordered absolute positions still
@@ -142,6 +142,8 @@ def read_tree(br: BitReader) -> dict:
 
 def encode(coder, x) -> tuple[np.ndarray, Counter]:
     bw = BitWriter()
+    if len(x) >= 1 << 32:
+        raise ValueError(f"item count {len(x)} does not fit the 32-bit header field")
     put_int(bw, len(x), 32)
     stats = write_tree(coder, bw)
     stats["header"] += 32
