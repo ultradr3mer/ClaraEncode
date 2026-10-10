@@ -28,14 +28,18 @@ CASES = [(np.array([0, 2]), 2), (np.array([2, 3, 4, 5, 5, 2]), 3), (np.array([0,
          (np.array([1, 4, 6, 7, 9, 12, 200, 201, 255, 4, 4]), 8),
          (rng.choice(1 << 16, 300, replace=False), 16),
          (rng.integers(0, 1 << 32, 500, dtype=np.uint64), 32),
-         (rng.geometric(0.05, 2000) % 4096, 12)]
+         (rng.geometric(0.05, 2000) % 4096, 12),
+         # width 64 (header stores width-1); values stay below 2**63 because
+         # clarautils.get_defined_bits overflows on the top bit
+         (rng.integers(0, 2 ** 63, 400, dtype=np.uint64), 64),
+         (np.array([0, 1, (1 << 62) | 5, 2 ** 63 - 1, (1 << 62) | 5], dtype=np.uint64), 64)]
 
 
 def test_hand_checked_tiny():
-    # N=2 | width=2 | one=leaf | strait '11' pos '1' bit '0' | split '10' (0 pos bits)
+    # N=2 | width-1=1 | one=leaf | strait '11' pos '1' bit '0' | split '10' (0 pos bits)
     # | leaves (rem empty, nothing) | stream 0->'0', 2->'1'
     data, stats = encode(make(np.array([0, 2]), 2), np.array([0, 2]))
-    assert data.tolist() == [0, 0, 0, 2, 0b00001010, 0b11101001]
+    assert data.tolist() == [0, 0, 0, 2, 0b00000110, 0b11101001]
     assert stats["stream"] == 2 and stats["leaf"] == 0
 
 

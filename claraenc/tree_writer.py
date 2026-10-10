@@ -1,7 +1,7 @@
 """Bitwise serialization of a GainCoder tree + code stream.
 
 Layout (MSB-first, clarautils BitWriter):
-  header  N:32  width:6  one_bit_kind:2
+  header  N:32  width-1:6 (widths 1..64)  one_bit_kind:2
   tree    breadth-first; each node docks onto the previous layer by order
           (split -> 2 children (1 first), strait -> 1, leaf -> 0).
           Every node carries `rem`, the MSB-ordered absolute positions still
@@ -89,7 +89,8 @@ def write_tree(coder, bw: BitWriter) -> Counter:
     codes = type_codes(one)
     stats = Counter()
 
-    put_int(bw, width, 6)
+    assert 1 <= width <= 64, f"unsupported width {width}"
+    put_int(bw, width - 1, 6)
     put_int(bw, one, 2)
     stats["header"] += 8
     for t, rem, msb in nodes:
@@ -115,7 +116,7 @@ def write_tree(coder, bw: BitWriter) -> Counter:
 
 def read_tree(br: BitReader) -> dict:
     """Returns {code: value}, values rebuilt from split, strait and leaf bits."""
-    width = read_int(br, 6)
+    width = read_int(br, 6) + 1
     one = read_int(br, 2)
     others = [k for k in (SPLIT, STRAIT, LEAF) if k != one]
     table = {}
